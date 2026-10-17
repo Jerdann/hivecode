@@ -26,9 +26,10 @@ type Status =
 
 export interface Guild {
   guild_id: string; forum_id: string; tags: string;
-  worker_role_id: string; manager_role_id: string | null; mind_role_id: string | null; pollinator_role_id: string | null;
+  worker_role_id: string; manager_role_id: string | null; mind_role_id: string | null;
+  catalyst_role_id: string | null; synapse_role_id: string | null;
   category_id: string | null; guide_channel_id: string | null; guide_message_id: string | null;
-  stats_channel_id: string | null; stats_message_id: string | null; workers_channel_id: string | null;
+  stats_channel_id: string | null; stats_message_id: string | null; workers_channel_id: string | null; workers_message_id: string | null;
   voter_role_id: string | null; changelog_id: string | null;
   min_votes: number; approve_pct: number; discuss_hours: number; vote_hours: number;
   approval: 'vote' | 'vote+owner' | 'owner' | 'auto';
@@ -53,9 +54,10 @@ const CLAIM_HOURS = 6;
 const MAX_OPTIONS = 4;
 const MAX_OPEN_IDEAS = 3;
 const COLOR = 0x4a64ff;
-const HONEY = 0xf5b700;
+const GOLD = 0xf5b700;
 const AMBER = 0xff8c1a;
-const BLOSSOM = 0xff7ab8;
+const PINK = 0xff7ab8;
+const CYAN = 0x2ee6d6;
 const MANAGE_GUILD = 0x20n;
 const VIEW = 1n << 10n, SEND = 1n << 11n, EMBED = 1n << 14n, MANAGE_THREADS = 1n << 34n, SEND_IN_THREADS = 1n << 38n;
 
@@ -74,6 +76,7 @@ const options = (i: Idea): Opt[] => JSON.parse(i.options);
 const letter = (i: number) => String.fromCharCode(65 + i);
 const when = (ms: number) => `<t:${Math.floor(ms / 1000)}:R>`;
 const usesVoting = (g: Guild) => g.approval === 'vote' || g.approval === 'vote+owner';
+const anyVote = (g: Guild) => usesVoting(g) || g.merge === 'vote'; // idea votes or ship votes use the voting settings
 const link = (env: Env, kind: 'issues' | 'pull', n: number) => `[#${n}](https://github.com/${env.GITHUB_REPO}/${kind}/${n})`;
 
 // ---------- REST ----------
@@ -174,7 +177,7 @@ async function view(env: Env, db: Db, i: Idea, g: Guild) {
     .join('\n\n');
   const footer = i.status === 'discussing' ? 'Reply below to discuss · to add another option, right-click a reply → Apps → Add as option' : 'HiveCode';
   return {
-    embeds: [{ description, color: COLOR, fields: [{ name: 'Status', value: statusLine(env, i, g) }], footer: { text: `🐝 ${footer}` } }],
+    embeds: [{ description, color: COLOR, fields: [{ name: 'Status', value: statusLine(env, i, g) }], footer: { text: `🧠 ${footer}` } }],
     components: controls(i, g, t),
   };
 }
@@ -183,7 +186,9 @@ async function view(env: Env, db: Db, i: Idea, g: Guild) {
 async function refresh(env: Env, db: Db, i: Idea, g: Guild) {
   const tags = JSON.parse(g.tags);
   const locked = i.status === 'rejected' || i.status === 'vetoed';
-  await discord(env, 'PATCH', `/channels/${i.thread_id}`, { archived: false, locked, applied_tags: [tags[TAG_OF[i.status]]] });
+  await discord(env, 'PATCH', `/channels/${i.thread_id}`, { archived: false, locked, applied_tags: [tags[TAG_OF[i.status]]] })
+    // Posts from before a forum switch don't have the new forum's tags; update them without.
+    .catch(() => discord(env, 'PATCH', `/channels/${i.thread_id}`, { archived: false, locked }));
   await discord(env, 'PATCH', `/channels/${i.thread_id}/messages/${i.thread_id}`, await view(env, db, i, g));
 }
 
@@ -233,7 +238,7 @@ async function ensureIssue(env: Env, db: Db, i: Idea, g: Guild) {
   try {
     const res = await github(env, 'POST', `/repos/${env.GITHUB_REPO}/issues`, {
       title: i.title,
-      body: `${options(i)[i.winner ?? 0].text}\n\n---\n🐝 Approved by the hive on Discord: https://discord.com/channels/${i.guild_id}/${i.thread_id}`,
+      body: `${options(i)[i.winner ?? 0].text}\n\n---\n🧠 Approved by the hive on Discord: https://discord.com/channels/${i.guild_id}/${i.thread_id}`,
       labels: ['hive:approved'],
     });
     issue = res.number;
@@ -248,7 +253,7 @@ async function ensureIssue(env: Env, db: Db, i: Idea, g: Guild) {
   await refresh(env, db, { ...i, issue, status }, g);
   const l = link(env, 'issues', issue);
   await say(env, i.thread_id,
-    g.builder === 'workers' ? `<@&${g.worker_role_id}> 🐝 New task: ${l}. Claim it with \`node hive-worker.mts work ${issue}\`.`
+    g.builder === 'workers' ? `<@&${g.worker_role_id}> 🧠 New task: ${l}. Claim it with \`node hive-worker.mts work ${issue}\`.`
     : g.builder === 'action' ? `🔨 Sent to the AI agent: ${l}`
     : `✅ Created ${l} for the maintainer to build.`);
 }
@@ -322,20 +327,20 @@ async function ship(env: Env, db: Db, i: Idea, g: Guild) {
   const next = await move(db, i, ['approved', 'building', 'review', 'shipping_vote'], 'shipped', { phase_ends: null });
   if (!next) return;
   await refresh(env, db, next, g);
-  // The author earns Pollinator the first time one of their ideas ships.
+  // The author earns Catalyst the first time one of their ideas ships.
   let earned = false;
-  if (g.pollinator_role_id) {
+  if (g.catalyst_role_id) {
     try {
       const author = await discord(env, 'GET', `/guilds/${g.guild_id}/members/${i.author_id}`);
-      if (!(author.roles ?? []).includes(g.pollinator_role_id)) {
-        await discord(env, 'PUT', `/guilds/${g.guild_id}/members/${i.author_id}/roles/${g.pollinator_role_id}`);
+      if (!(author.roles ?? []).includes(g.catalyst_role_id)) {
+        await discord(env, 'PUT', `/guilds/${g.guild_id}/members/${i.author_id}/roles/${g.catalyst_role_id}`);
         earned = true;
       }
     } catch (e) {
-      console.error('Giving Pollinator failed:', e); // e.g. the author left the server
+      console.error('Giving Catalyst failed:', e); // e.g. the author left the server
     }
   }
-  await say(env, i.thread_id, `🚀 Shipped! Thanks <@${i.author_id}> for the idea.${earned ? ` You're now a <@&${g.pollinator_role_id}> 🌸` : ''}`, [i.author_id]);
+  await say(env, i.thread_id, `🚀 Shipped! Thanks <@${i.author_id}> for the idea.${earned ? ` You're now a <@&${g.catalyst_role_id}> ⚡` : ''}`, [i.author_id]);
   if (g.changelog_id) {
     const where = i.pr ? link(env, 'pull', i.pr) : link(env, 'issues', i.issue!);
     await discord(env, 'POST', `/channels/${g.changelog_id}/messages`, {
@@ -443,14 +448,16 @@ export async function interaction(ix: any, env: Env, db: Db): Promise<Reply> {
 
 // ---------- Setup ----------
 
-// With options it applies them directly; without, it opens the step-by-step wizard.
 // Older installs lack newer columns. Adding one errors when it already exists, which is fine.
-const NEW_COLUMNS = ['mind_role_id', 'manager_role_id', 'pollinator_role_id', 'category_id', 'guide_channel_id', 'guide_message_id',
-  'stats_channel_id', 'stats_message_id', 'workers_channel_id'];
+const NEW_COLUMNS = ['mind_role_id', 'manager_role_id', 'catalyst_role_id', 'synapse_role_id', 'category_id', 'guide_channel_id',
+  'guide_message_id', 'stats_channel_id', 'stats_message_id', 'workers_channel_id', 'workers_message_id'];
 
+// With options it applies them directly; without, it opens the step-by-step guide.
 // forum: on a first run, an existing forum's id to use, or 'new' to create #hive-ideas.
 async function setup(env: Env, db: Db, ix: any, g: Guild | null, opts: { name: string; value: string | number }[], forum?: string): Promise<string | object> {
+  await db.run('ALTER TABLE guilds RENAME COLUMN pollinator_role_id TO catalyst_role_id').catch(() => {}); // Catalyst was called Pollinator
   for (const col of NEW_COLUMNS) await db.run(`ALTER TABLE guilds ADD COLUMN ${col} TEXT`).catch(() => {});
+  if (g) g = await db.first<Guild>('SELECT * FROM guilds WHERE guild_id = ?', ix.guild_id); // re-read after the migrations
   if (!g && !opts.length && !forum) {
     // First run in a server that already has a forum: ask where ideas go before creating anything.
     const channels: { type: number }[] = await discord(env, 'GET', `/guilds/${ix.guild_id}/channels`);
@@ -461,15 +468,11 @@ async function setup(env: Env, db: Db, ix: any, g: Guild | null, opts: { name: s
   const ch = await ensureChannels(env, ix, g, roles, forum);
   if (!g) await db.run('INSERT INTO guilds (guild_id, forum_id, tags, worker_role_id) VALUES (?, ?, ?, ?)', ix.guild_id, ch.forum, ch.tags, roles.worker);
   await db.run(
-    `UPDATE guilds SET forum_id = ?, tags = ?, manager_role_id = ?, mind_role_id = ?, pollinator_role_id = ?, category_id = ?,
-      guide_channel_id = ?, stats_channel_id = ?, workers_channel_id = ? WHERE guild_id = ?`,
-    ch.forum, ch.tags, roles.manager, roles.mind, roles.pollinator, ch.category, ch.guide, ch.stats, ch.workers, ix.guild_id,
+    `UPDATE guilds SET forum_id = ?, tags = ?, manager_role_id = ?, mind_role_id = ?, catalyst_role_id = ?, synapse_role_id = ?,
+      category_id = ?, guide_channel_id = ?, stats_channel_id = ?, workers_channel_id = ? WHERE guild_id = ?`,
+    ch.forum, ch.tags, roles.manager, roles.mind, roles.catalyst, roles.synapse, ch.category, ch.guide, ch.stats, ch.workers, ix.guild_id,
   );
-  if (roles.newManager) {
-    // Light moderation for Hive Managers, scoped to the ideas forum: lock, close, pin and delete posts.
-    await discord(env, 'PUT', `/channels/${ch.forum}/permissions/${roles.manager}`, { type: 0, allow: String(MANAGE_THREADS) })
-      .catch((e) => console.error('Giving Hive Manager forum permissions failed:', e));
-  }
+  if (roles.newManager) await letManagersModerate(env, ch.forum, roles.manager);
   const set: Record<string, unknown> = Object.fromEntries(SETTINGS.filter((k) => k in o).map((k) => [k, o[k]]));
   if ('voter_role' in o) set.voter_role_id = o.voter_role === ix.guild_id ? null : o.voter_role; // @everyone = no restriction
   if ('changelog' in o) set.changelog_id = o.changelog;
@@ -477,8 +480,8 @@ async function setup(env: Env, db: Db, ix: any, g: Guild | null, opts: { name: s
   if (keys.length) await db.run(`UPDATE guilds SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE guild_id = ?`, ...keys.map((k) => set[k]), ix.guild_id);
 
   const s = (await db.first<Guild>('SELECT * FROM guilds WHERE guild_id = ?', ix.guild_id))!;
-  await refreshGuide(env, db, s);
-  await refreshStats(env, db, s);
+  await refreshRules(env, db, s);
+  await refreshStats(env, db, s).catch((e) => console.error('Posting stats failed:', e));
   return opts.length ? summary(s) : wizard(s, 0);
 }
 
@@ -489,11 +492,16 @@ const readOnly = (env: Env, guild: string, maintainers: (string | null)[]) => [
   ...maintainers.filter(Boolean).map((id) => ({ id, type: 0, allow: String(SEND) })),
 ];
 
+// Light moderation for Hive Managers, scoped to the ideas forum: lock, close, pin and delete posts.
+const letManagersModerate = (env: Env, forum: string, manager: string) =>
+  discord(env, 'PUT', `/channels/${forum}/permissions/${manager}`, { type: 0, allow: String(MANAGE_THREADS) })
+    .catch((e) => console.error('Giving Hive Manager forum permissions failed:', e));
+
 function forumPicker() {
   return {
     content: '',
     embeds: [{
-      title: '🐝 HiveCode setup · where should ideas go?', color: COLOR,
+      title: '🧠 HiveCode setup · where should ideas go?', color: COLOR,
       description: 'Your server already has a forum. Pick one to use for ideas, or let HiveCode create a fresh **#hive-ideas** forum.\n' +
         '*In an existing forum, HiveCode adds its status tags and only tracks posts made with `/idea`. Everything else stays as it is.*',
     }],
@@ -502,6 +510,23 @@ function forumPicker() {
       row(btn('setup:newforum', '➕ Create #hive-ideas', 3)),
     ],
   };
+}
+
+const tagIds = (available: { id: string; name: string }[]) =>
+  JSON.stringify(Object.fromEntries(Object.entries(TAGS).map(([k, [name]]) => [k, available.find((t) => t.name === name)!.id])));
+
+async function createForum(env: Env, guild: string, category: string | null) {
+  const f = await discord(env, 'POST', `/guilds/${guild}/channels`, {
+    name: 'hive-ideas', type: 15, default_auto_archive_duration: 10080, ...(category ? { parent_id: category } : {}),
+    topic: 'Ideas for the project. Start one with /idea: the hive discusses it, decides, and builds it.',
+    available_tags: Object.values(TAGS).map(([name, emoji_name]) => ({ name, emoji_name })),
+    // Posts only come through /idea (so they're tracked); everyone can still reply.
+    permission_overwrites: [
+      { id: guild, type: 0, deny: String(SEND), allow: String(SEND_IN_THREADS) },
+      { id: env.DISCORD_APP_ID, type: 1, allow: String(SEND | SEND_IN_THREADS | MANAGE_THREADS) },
+    ],
+  });
+  return { id: f.id as string, tags: tagIds(f.available_tags) };
 }
 
 // Use a forum the server already has: add HiveCode's status tags next to its own and let the bot post and
@@ -516,89 +541,78 @@ async function adoptForum(env: Env, id: string) {
     ? await discord(env, 'PATCH', `/channels/${id}`, { available_tags: [...f.available_tags, ...missing.map(([name, emoji_name]) => ({ name, emoji_name }))] })
     : f;
   await discord(env, 'PUT', `/channels/${id}/permissions/${env.DISCORD_APP_ID}`, { type: 1, allow: String(VIEW | SEND | EMBED | SEND_IN_THREADS | MANAGE_THREADS) });
-  return JSON.stringify(Object.fromEntries(Object.entries(TAGS).map(([k, [name]]) => [k, updated.available_tags.find((t: any) => t.name === name).id])));
+  return tagIds(updated.available_tags);
 }
 
-// A 🐝 HiveCode category holding the guide, the ideas forum, stats, and a private channel for Hive Workers.
+// A 🧠 HiveCode category holding the guide, the ideas forum, stats, and a private channel for Hive Workers.
+// Any of them that someone deleted gets recreated.
 async function ensureChannels(env: Env, ix: any, g: Guild | null, roles: { worker: string; manager: string; mind: string }, existing?: string) {
   const guild = ix.guild_id;
   const create = (body: object): Promise<any> => discord(env, 'POST', `/guilds/${guild}/channels`, body);
-  // A channel someone deleted gets recreated below.
-  const alive = async (id: string | null | undefined) =>
-    id ? discord(env, 'GET', `/channels/${id}`).then(() => id, (e) => (String(e).includes('→ 404') ? null : id)) : null;
+  const fetchChannel = async (id: string | null | undefined): Promise<any> =>
+    id ? discord(env, 'GET', `/channels/${id}`).catch((e) => (String(e).includes('→ 404') ? null : { id })) : null;
+  const alive = async (id: string | null | undefined): Promise<string | null> => ((await fetchChannel(id)) ? id! : null);
   const locked = readOnly(env, guild, [roles.mind, roles.manager]);
-  const hadCategory = await alive(g?.category_id);
-  const category = hadCategory || (await create({ name: '🐝 HiveCode', type: 4 })).id;
-  const guide = await alive(g?.guide_channel_id) || (await create({
+
+  const oldCategory = await fetchChannel(g?.category_id);
+  if (oldCategory?.name === '🐝 HiveCode') { // from before the hive-mind theme
+    await discord(env, 'PATCH', `/channels/${g!.category_id}`, { name: '🧠 HiveCode' }).catch((e) => console.error('Renaming the category failed:', e));
+  }
+  const category: string = oldCategory ? g!.category_id! : (await create({ name: '🧠 HiveCode', type: 4 })).id;
+  const guide = await alive(g?.guide_channel_id) ?? (await create({
     name: 'hive-guide', type: 0, parent_id: category, permission_overwrites: locked,
     topic: 'How HiveCode works in this server: the rules, the commands and the roles. Kept up to date by the bot.',
-  })).id;
+  })).id as string;
   let forum = await alive(g?.forum_id), tags = g?.tags;
-  if (!forum && existing && existing !== 'new') {
-    forum = existing;
-    tags = await adoptForum(env, existing);
-  } else if (!forum) {
-    const f = await create({
-      name: 'hive-ideas', type: 15, parent_id: category, default_auto_archive_duration: 10080,
-      topic: 'Suggest features with /idea. The hive discusses, votes, and the AI builds.',
-      available_tags: Object.values(TAGS).map(([name, emoji_name]) => ({ name, emoji_name })),
-      // Posts only come through /idea (so they're tracked); everyone can still reply.
-      permission_overwrites: [
-        { id: guild, type: 0, deny: String(SEND), allow: String(SEND_IN_THREADS) },
-        { id: env.DISCORD_APP_ID, type: 1, allow: String(SEND | SEND_IN_THREADS | MANAGE_THREADS) },
-      ],
-    });
-    forum = f.id as string;
-    tags = JSON.stringify(Object.fromEntries(Object.entries(TAGS).map(([k, [name]]) => [k, f.available_tags.find((t: any) => t.name === name).id])));
-  } else if (!hadCategory && !existing) {
+  if (!forum) {
+    ({ id: forum, tags } = existing && existing !== 'new' ? { id: existing, tags: await adoptForum(env, existing) } : await createForum(env, guild, category));
+  } else if (g && !g.category_id) { // installs from before the category existed
     await discord(env, 'PATCH', `/channels/${forum}`, { parent_id: category }).catch((e) => console.error('Moving the forum failed:', e));
   }
-  const stats = await alive(g?.stats_channel_id) || (await create({
+  const stats = await alive(g?.stats_channel_id) ?? (await create({
     name: 'hive-stats', type: 0, parent_id: category, permission_overwrites: locked, topic: 'Fun numbers about the hive. Updated every 15 minutes.',
-  })).id;
-  let workers = await alive(g?.workers_channel_id);
-  if (!workers) {
-    workers = (await create({
-      name: 'hive-workers', type: 0, parent_id: category, topic: 'For Hive Workers: set up your AI agent, pick up tasks and coordinate.',
-      permission_overwrites: [
-        { id: guild, type: 0, deny: String(VIEW) },
-        { id: env.DISCORD_APP_ID, type: 1, allow: String(VIEW | SEND | EMBED) },
-        ...[roles.mind, roles.manager, roles.worker].map((id) => ({ id, type: 0, allow: String(VIEW | SEND) })),
-      ],
-    })).id as string;
-    await discord(env, 'POST', `/channels/${workers}/messages`, { ...workerGuide(), allowed_mentions: { parse: [] } })
-      .catch((e) => console.error('Posting the worker guide failed:', e));
-  }
+  })).id as string;
+  const workers = await alive(g?.workers_channel_id) ?? (await create({
+    name: 'hive-workers', type: 0, parent_id: category, topic: 'For Hive Workers: set up your AI agent, pick up tasks and coordinate.',
+    permission_overwrites: [
+      { id: guild, type: 0, deny: String(VIEW) },
+      { id: env.DISCORD_APP_ID, type: 1, allow: String(VIEW | SEND | EMBED) },
+      ...[roles.mind, roles.manager, roles.worker].map((id) => ({ id, type: 0, allow: String(VIEW | SEND) })),
+    ],
+  })).id as string;
   return { category, guide, forum: forum!, tags: tags!, stats, workers };
 }
 
-// Hive Mind (owners), Hive Manager (moderators), Hive Worker (builders) and Pollinator (their idea shipped), each
-// shown as its own group in the member list, in that order. Whoever runs setup gets Hive Mind.
+// Hive Mind (owners), Hive Manager (moderators), Hive Worker (builders), Catalyst (had an idea shipped) and Synapse
+// (voted), each shown as its own group in the member list, in that order. Whoever runs setup gets Hive Mind.
 async function ensureRoles(env: Env, ix: any, g: Guild | null) {
   const guild = ix.guild_id;
   const make = async (name: string, color: number, mentionable = true): Promise<string> =>
     (await discord(env, 'POST', `/guilds/${guild}/roles`, { name, color, hoist: true, mentionable })).id;
   const worker = g?.worker_role_id || await make('Hive Worker', COLOR);
   const manager = g?.manager_role_id || await make('Hive Manager', AMBER);
-  const mind = g?.mind_role_id || await make('Hive Mind', HONEY);
-  const pollinator = g?.pollinator_role_id || await make('Pollinator', BLOSSOM, false);
-  const newManager = !g?.manager_role_id;
-  if (newManager || !g?.mind_role_id || !g?.pollinator_role_id) {
-    // New roles land at the bottom of the list. Reuse the roles' slots in order: Mind, Manager, Worker, Pollinator. Cosmetic: never fatal.
-    try {
+  const mind = g?.mind_role_id || await make('Hive Mind', GOLD);
+  const catalyst = g?.catalyst_role_id || await make('Catalyst', PINK, false);
+  const synapse = g?.synapse_role_id || await make('Synapse', CYAN, false);
+  const created = !g?.manager_role_id || !g?.mind_role_id || !g?.catalyst_role_id || !g?.synapse_role_id;
+  // Cosmetic, so never fatal: rename the old Pollinator role, and sort new roles (which land at the bottom of the
+  // list) into order by reusing the five roles' slots.
+  try {
+    const all: { id: string; name: string; position: number }[] = await discord(env, 'GET', `/guilds/${guild}/roles`);
+    if (all.some((r) => r.id === catalyst && r.name === 'Pollinator')) await discord(env, 'PATCH', `/guilds/${guild}/roles/${catalyst}`, { name: 'Catalyst' });
+    if (created) {
       await discord(env, 'PATCH', `/guilds/${guild}/roles/${worker}`, { hoist: true }); // older installs made it without
-      const all: { id: string; position: number }[] = await discord(env, 'GET', `/guilds/${guild}/roles`);
-      const ids = [mind, manager, worker, pollinator];
+      const ids = [mind, manager, worker, catalyst, synapse];
       const slots = ids.map((id) => all.find((r) => r.id === id)?.position ?? 0).sort((a, b) => b - a);
       await discord(env, 'PATCH', `/guilds/${guild}/roles`, ids.map((id, n) => ({ id, position: slots[n] })));
-    } catch (e) {
-      console.error('Sorting the Hive roles failed:', e);
     }
+  } catch (e) {
+    console.error('Tidying the Hive roles failed:', e);
   }
   if (!ix.member.roles.includes(mind)) {
     await discord(env, 'PUT', `/guilds/${guild}/members/${ix.member.user.id}/roles/${mind}`).catch((e) => console.error('Giving Hive Mind failed:', e));
   }
-  return { worker, manager, mind, pollinator, newManager };
+  return { worker, manager, mind, catalyst, synapse, newManager: !g?.manager_role_id };
 }
 
 type Choice = [value: string | number, label: string, description?: string];
@@ -643,6 +657,15 @@ function pick(at: number, field: string, g: Guild) {
 
 const STEPS: { title: string; about: string; when?: (g: Guild) => boolean; rows: (g: Guild, at: number) => unknown[] }[] = [
   {
+    title: 'Where do ideas go?',
+    about: 'The forum where `/idea` posts land. Pick any forum in your server, or let HiveCode create **#hive-ideas**.\n' +
+      '*In a forum you already had, HiveCode adds its status tags and leaves everything else as it is.*',
+    rows: (g, at) => [
+      row({ type: 8, custom_id: `setup:${at}:forum_id`, channel_types: [15], min_values: 1, max_values: 1, default_values: [{ id: g.forum_id, type: 'channel' }] }),
+      row(btn(`setup:mkforum:${at}`, '➕ Create #hive-ideas', 2)),
+    ],
+  },
+  {
     title: 'How do ideas get approved?',
     about: 'Pick who has the final say. Hive Mind and Hive Manager can always approve or veto any idea by hand.',
     rows: (g, at) => [pick(at, 'approval', g)],
@@ -651,19 +674,19 @@ const STEPS: { title: string; about: string; when?: (g: Guild) => boolean; rows:
     title: 'What does an idea need to pass?',
     about: 'With a vote minimum, an idea passes the moment it clears both bars. With no minimum, it is decided when voting closes.\n' +
       '*Maintainers can always skip the vote: approve or veto any idea at any time.*',
-    when: usesVoting, rows: (g, at) => [pick(at, 'min_votes', g), pick(at, 'approve_pct', g)],
+    when: anyVote, rows: (g, at) => [pick(at, 'min_votes', g), pick(at, 'approve_pct', g)],
   },
   {
     title: 'How long do discussion and voting last?',
     about: 'During discussion people reply and add alternative options. The idea freezes when voting opens.\n' +
       '*None of this binds maintainers: they can approve or veto any idea at any time, then build it themselves or assign it to a Hive Worker.*',
-    when: usesVoting, rows: (g, at) => [pick(at, 'discuss_hours', g), pick(at, 'vote_hours', g)],
+    when: anyVote, rows: (g, at) => [...(usesVoting(g) ? [pick(at, 'discuss_hours', g)] : []), pick(at, 'vote_hours', g)],
   },
   {
     title: 'Who can vote and add options?',
     about: 'Leave the role empty to let everyone vote. Options get added by right-clicking a reply → Apps → Add as option.',
     rows: (g, at) => [
-      ...(usesVoting(g) ? [row({ type: 6, custom_id: `setup:${at}:voter_role_id`, placeholder: 'Everyone can vote (or pick a role)', min_values: 0, max_values: 1,
+      ...(anyVote(g) ? [row({ type: 6, custom_id: `setup:${at}:voter_role_id`, placeholder: 'Everyone can vote (or pick a role)', min_values: 0, max_values: 1,
         default_values: g.voter_role_id ? [{ id: g.voter_role_id, type: 'role' }] : [] })] : []),
       pick(at, 'options_by', g),
     ],
@@ -675,11 +698,11 @@ const STEPS: { title: string; about: string; when?: (g: Guild) => boolean; rows:
   },
   {
     title: 'Where should shipped ideas be announced?',
-    about: 'Optional: pick a channel that gets a post every time an idea ships, leave it empty, or let HiveCode make one.',
+    about: 'Optional: pick a channel that gets a post every time an idea ships, leave it empty, or let HiveCode create **#hive-changelog**.',
     rows: (g, at) => [
       row({ type: 8, custom_id: `setup:${at}:changelog_id`, placeholder: 'No changelog channel', channel_types: [0, 5], min_values: 0, max_values: 1,
         default_values: g.changelog_id ? [{ id: g.changelog_id, type: 'channel' }] : [] }),
-      ...(g.changelog_id ? [] : [row(btn(`setup:mkchangelog:${at}`, '➕ Create #hive-changelog', 3))]),
+      row(btn(`setup:mkchangelog:${at}`, '➕ Create #hive-changelog', 2)),
     ],
   },
 ];
@@ -692,7 +715,7 @@ function wizard(g: Guild, at: number) {
   return {
     content: '',
     embeds: [{
-      title: `🐝 HiveCode setup · step ${n + 1} of ${shown.length}`, description: `**${STEPS[at].title}**\n${STEPS[at].about}`,
+      title: `🧠 HiveCode setup · step ${n + 1} of ${shown.length}`, description: `**${STEPS[at].title}**\n${STEPS[at].about}`,
       color: COLOR, footer: { text: 'Changes save as soon as you pick them.' },
     }],
     components: [...STEPS[at].rows(g, at), row(
@@ -707,99 +730,162 @@ async function setupStep(env: Env, db: Db, ix: any, g: Guild, admin: boolean): P
   const [, a, b] = String(ix.data.custom_id).split(':');
   if (a === 'done') return { body: { type: 7, data: { content: summary(g), embeds: [], components: [] } } };
   if (a === 'go') return { body: { type: 7, data: wizard(g, Number(b)) } };
+  // Steps that create or change channels take a few seconds: acknowledge, do the work, then redraw the guide
+  // (with any error shown on top).
+  const slow = (at: number, work: () => Promise<Guild>): Reply => ({
+    body: { type: 6 },
+    after: async () => {
+      let data: object;
+      try { data = wizard(await work(), at); } catch (e) { data = { ...wizard(g, at), content: `⚠️ ${(e as Error).message}`.slice(0, 1900) }; }
+      await discord(env, 'PATCH', `/webhooks/${env.DISCORD_APP_ID}/${ix.token}/messages/@original`, data);
+    },
+  });
+  const named = async (id: string | null, name: string) => !!id && (await discord(env, 'GET', `/channels/${id}`).catch(() => null))?.name === name;
+  if (a === 'mkforum') {
+    return slow(Number(b), async () => {
+      if (await named(g.forum_id, 'hive-ideas')) return g; // already using one
+      const f = await createForum(env, g.guild_id, g.category_id);
+      return useForum(env, db, g, f.id, f.tags);
+    });
+  }
   if (a === 'mkchangelog') {
-    return {
-      body: { type: 6 },
-      after: async () => {
-        const ch = await discord(env, 'POST', `/guilds/${g.guild_id}/channels`, {
-          name: 'hive-changelog', type: 0, topic: 'Every idea the hive ships.', permission_overwrites: readOnly(env, g.guild_id, [g.mind_role_id, g.manager_role_id]),
-          ...(g.category_id ? { parent_id: g.category_id } : {}),
-        });
-        await db.run('UPDATE guilds SET changelog_id = ? WHERE guild_id = ?', ch.id, g.guild_id);
-        const next = { ...g, changelog_id: ch.id };
-        await discord(env, 'PATCH', `/webhooks/${env.DISCORD_APP_ID}/${ix.token}/messages/@original`, wizard(next, Number(b)));
-        await refreshGuide(env, db, next);
-      },
-    };
+    return slow(Number(b), async () => {
+      if (await named(g.changelog_id, 'hive-changelog')) return g; // already using one
+      const ch = await discord(env, 'POST', `/guilds/${g.guild_id}/channels`, {
+        name: 'hive-changelog', type: 0, topic: 'Every idea the hive ships.', permission_overwrites: readOnly(env, g.guild_id, [g.mind_role_id, g.manager_role_id]),
+        ...(g.category_id ? { parent_id: g.category_id } : {}),
+      });
+      await db.run('UPDATE guilds SET changelog_id = ? WHERE guild_id = ?', ch.id, g.guild_id);
+      const next = { ...g, changelog_id: ch.id };
+      await refreshRules(env, db, next);
+      return next;
+    });
+  }
+  const raw: string | undefined = ix.data.values?.[0];
+  if (b === 'forum_id') {
+    if (!raw || raw === g.forum_id) return { body: { type: 7, data: wizard(g, Number(a)) } };
+    return slow(Number(a), async () => useForum(env, db, g, raw, await adoptForum(env, raw)));
   }
   if (!WIZARD_FIELDS.includes(b)) return msg('Unknown setting.');
-  const raw: string | undefined = ix.data.values?.[0];
   const value = raw === undefined ? null : NUMBERS.includes(b) ? Number(raw) : raw;
   await db.run(`UPDATE guilds SET ${b} = ? WHERE guild_id = ?`, value, g.guild_id);
   const next = { ...g, [b]: value } as Guild;
-  // The public guide shows the rules, so it follows every change.
-  return { body: { type: 7, data: wizard(next, Number(a)) }, after: () => refreshGuide(env, db, next) };
+  // The guides describe the rules, so they follow every change.
+  return { body: { type: 7, data: wizard(next, Number(a)) }, after: () => refreshRules(env, db, next) };
+}
+
+// Switch ideas to another forum. Ideas already posted in the old one keep working there.
+async function useForum(env: Env, db: Db, g: Guild, id: string, tags: string) {
+  await db.run('UPDATE guilds SET forum_id = ?, tags = ? WHERE guild_id = ?', id, tags, g.guild_id);
+  if (g.manager_role_id) await letManagersModerate(env, id, g.manager_role_id);
+  const next = { ...g, forum_id: id, tags };
+  await refreshRules(env, db, next);
+  return next;
 }
 
 // ---------- Guide, worker guide and stats posts ----------
 
-// #hive-guide: the live rules, commands and roles. Re-rendered whenever a setting changes.
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const hours = (h: number) => (h % 168 === 0 ? plural(h / 168, 'week') : h % 24 === 0 ? plural(h / 24, 'day') : plural(h, 'hour'));
+
+// #hive-guide: how ideas work in this server, written from its actual settings. Re-rendered whenever one changes.
 function guide(g: Guild) {
   const voting = usesVoting(g);
+  const discussing = g.approval === 'owner' || (voting && g.discuss_hours > 0); // ideas sit in discussion for a while
+  const voters = g.voter_role_id ? `Members with <@&${g.voter_role_id}>` : 'Everyone';
+  const yes = g.approve_pct ? `at least ${g.approve_pct}% yes votes` : 'more yes votes than no votes';
+  const bar = g.min_votes
+    ? `An idea passes the moment it has ${plural(g.min_votes, 'vote')} with ${yes}. If it hasn't by the time voting closes, it's rejected.`
+    : `When voting closes, an idea passes with ${yes}; otherwise it's rejected.`;
+  const shipBar = g.min_votes ? `It ships the moment it has ${plural(g.min_votes, 'vote')} with ${yes}.` : `When voting closes, it ships with ${yes}.`;
+  const synapse = g.synapse_role_id ? ` Your first vote earns you <@&${g.synapse_role_id}>.` : '';
+  const optionsLine = discussing
+    ? ` ${g.options_by === 'anyone' ? 'Anyone' : 'The idea\'s author or a maintainer'} can turn a good reply into a competing option: right-click it → **Apps** → **Add as option** (up to ${MAX_OPTIONS} options).`
+    : '';
+
+  const discuss = {
+    auto: 'There is no discussion phase: ideas are approved the moment they are posted. You can still reply in the post.',
+    owner: 'Reply in the post to discuss. The idea stays open until a maintainer approves or vetoes it; there is no time limit.',
+    vote: g.discuss_hours
+      ? `Discussion runs for ${hours(g.discuss_hours)}. Reply in the post; when time is up, the idea freezes and voting opens.`
+      : 'There is no discussion phase: voting opens as soon as an idea is posted. You can still reply in the post.',
+  }[g.approval === 'vote+owner' ? 'vote' : g.approval] + optionsLine;
   const decide = {
-    vote: `Members vote with the buttons on the post. ${rules(g)}.`,
-    'vote+owner': `Members vote with the buttons on the post. ${rules(g)}; then a maintainer confirms.`,
-    owner: 'A maintainer picks: ✅ Approve or ⛔ Veto.',
-    auto: 'Every idea is approved automatically.',
+    vote: `${voters} can vote with the buttons on the post for ${hours(g.vote_hours)}. ${bar}${synapse}`,
+    'vote+owner': `${voters} can vote with the buttons on the post for ${hours(g.vote_hours)}. ${bar} An idea that passes then waits for a maintainer to confirm it.${synapse}`,
+    owner: 'There is no vote: a maintainer approves (✅) or vetoes (⛔) each idea.',
+    auto: '⚠️ There is no vote: every idea is approved automatically the moment it is posted.',
   }[g.approval];
-  const timing = voting ? ` Voting lasts ${label('vote_hours', g.vote_hours).replace('Vote for ', '')}${g.voter_role_id ? ` and is open to <@&${g.voter_role_id}>` : ''}.` : '';
-  const discuss = !voting ? 'Reply in the post' : g.discuss_hours ? `${label('discuss_hours', g.discuss_hours)} by replying in the post` : 'There is no discussion phase, but you can reply in the post any time';
   const build = {
-    manual: 'A maintainer builds it from the GitHub issue.',
-    action: 'An AI agent (Claude Code or Codex) builds it automatically and opens a pull request.',
-    workers: `A <@&${g.worker_role_id}> claims it (or a maintainer assigns it) and builds it with their own AI agent.`,
+    manual: 'HiveCode opens a GitHub issue, and a maintainer builds it.',
+    action: 'HiveCode opens a GitHub issue, and an AI agent builds it automatically, then opens a pull request.',
+    workers: `HiveCode opens a GitHub issue and pings <@&${g.worker_role_id}>. A worker claims it, or a maintainer assigns it to someone, ` +
+      `and they build it with their own AI agent. A claim goes back to the queue after ${plural(CLAIM_HOURS, 'hour')} without a pull request.`,
   }[g.builder];
   const merge = {
-    owner: 'A maintainer reviews and merges the pull request.',
-    vote: 'Members vote to ship the finished pull request.',
-    auto: 'It merges automatically as soon as its checks pass.',
+    owner: 'A maintainer reviews the pull request and merges it.',
+    vote: `${voters} can vote for ${hours(g.vote_hours)} on whether to ship the finished pull request. ${shipBar} ` +
+      `If the answer is "not yet", a maintainer decides what happens next.${voting ? '' : synapse}`,
+    auto: '⚠️ The pull request merges automatically as soon as its checks pass. Changes to the project\'s workflow files always wait for a maintainer.',
   }[g.merge];
+
+  const maintainerButtons = [g.approval === 'auto' ? '' : '✅ Approve', '⛔ Veto', voting && g.discuss_hours ? 'Open voting now' : '',
+    g.builder === 'workers' ? '👷 Assign to a worker' : ''].filter(Boolean).join(', ');
   return {
     embeds: [
       {
-        title: '🐝 How ideas work here', color: COLOR, timestamp: new Date().toISOString(), footer: { text: 'Updated automatically whenever the rules change' },
+        title: '🧠 How ideas work here', color: COLOR, timestamp: new Date().toISOString(), footer: { text: 'Updated automatically whenever the rules change' },
         description: [
-          `**1. Suggest.** Type \`/idea\` in any channel: a title, a description and up to two alternatives. It becomes a post in <#${g.forum_id}>.`,
-          `**2. Discuss.** ${discuss}. ${g.options_by === 'anyone' ? 'Anyone' : 'The idea\'s author or a maintainer'} can turn a good reply into an option: right-click it → **Apps** → **Add as option**.`,
-          `**3. Decide.** ${decide}${timing}`,
+          `**1. Suggest.** Type \`/idea\` in any channel. A form pops up asking for a title, a description and up to two alternative versions. ` +
+            `Submit it, and your idea opens as a new post in <#${g.forum_id}>.` +
+            (g.approval === 'auto' ? '' : ` You can have up to ${MAX_OPEN_IDEAS} ideas waiting on a decision at once.`),
+          `**2. Discuss.** ${discuss}`,
+          `**3. Decide.** ${decide}`,
           `**4. Build.** ${build}`,
           `**5. Merge.** ${merge}`,
-          `**6. Ship.** 🚀 The author earns <@&${g.pollinator_role_id}>${g.changelog_id ? ` and it gets announced in <#${g.changelog_id}>` : ''}.`,
+          `**6. Ship.** 🚀 The idea's author earns <@&${g.catalyst_role_id}>${g.changelog_id ? `, and the launch is announced in <#${g.changelog_id}>` : ''}.`,
           '',
-          '*Maintainers can always step in: they can approve or veto any idea at any time, whatever the voting rules say.*',
+          g.approval === 'auto'
+            ? '*Maintainers can still veto any idea until someone starts building it.*'
+            : '*Maintainers can step in at any time: they can approve or veto any idea, whatever the voting rules say.*',
         ].join('\n'),
       },
       {
         title: '⌨️ Commands', color: COLOR,
         description: [
           '`/idea` Suggest something for the hive to build.',
-          '**Right-click a reply → Apps → Add as option** Turn a reply into a competing option while the idea is being discussed.',
-          '**Buttons on each post** Vote. Maintainers also get ✅ Approve, ⛔ Veto, Open voting now and 👷 Assign.',
-          '`/hive edit` Edit your own idea while it is still being discussed (run it inside the post).',
-          `\`/hive worker\` Hive Workers: get your login for the hive-worker tool${g.workers_channel_id ? ` (guide in <#${g.workers_channel_id}>)` : ''}.`,
+          discussing ? '**Right-click a reply → Apps → Add as option** Turn a reply into a competing option while the idea is being discussed.' : '',
+          voting ? `**Vote buttons** on each post: pick an option, or vote no.${g.merge === 'vote' ? ' They come back later for the vote on shipping it.' : ''}` : '',
+          !voting && g.merge === 'vote' ? '**Ship it / Not yet** buttons on each post once its pull request is ready.' : '',
+          `**Maintainer buttons** on each post: ${maintainerButtons}.`,
+          discussing ? '`/hive edit` Edit your own idea while it is still being discussed (run it inside the post).' : '',
+          g.builder === 'workers' ? `\`/hive worker\` Hive Workers: get your login for the hive-worker tool (guide in <#${g.workers_channel_id}>).` : '',
           '`/hive setup` Hive Mind: change these rules.',
-        ].join('\n'),
+        ].filter(Boolean).join('\n'),
       },
       {
         title: '🎭 Roles', color: COLOR,
         description: [
           `<@&${g.mind_role_id}> Owners: setup and every decision.`,
-          `<@&${g.manager_role_id}> Approve, veto, assign work and moderate <#${g.forum_id}>.`,
-          `<@&${g.worker_role_id}> Build approved ideas with their own AI agent.`,
-          `<@&${g.pollinator_role_id}> Had an idea shipped.`,
+          `<@&${g.manager_role_id}> Approve, veto${g.builder === 'workers' ? ', assign work' : ''} and moderate <#${g.forum_id}>.`,
+          `<@&${g.worker_role_id}> Build approved ideas with their own AI agent${g.builder === 'workers' ? '' : ' (when a maintainer makes Hive Workers the builder)'}.`,
+          `<@&${g.catalyst_role_id}> Had an idea shipped.`,
+          `<@&${g.synapse_role_id}> Voted on an idea.`,
         ].join('\n'),
       },
     ],
   };
 }
 
-// #hive-workers: posted once when the channel is created.
-function workerGuide() {
+// #hive-workers: how to set up hive-worker, get work, the risks, and how to stop. Kept current like the guide.
+function workerGuide(g: Guild) {
   return {
     embeds: [
       {
-        title: '🐝 Welcome, Hive Worker', color: COLOR,
-        description: 'You build the ideas the hive approves, with **your own AI agent** on **your own computer**. You work from your own fork on GitHub, so you never need access to the project repo.',
+        title: '🧠 Welcome, Hive Worker', color: COLOR,
+        description: 'You build the ideas the hive approves, with **your own AI agent** on **your own computer**. ' +
+          'You work from your own fork on GitHub, so you never need access to the project repo.' +
+          (g.builder === 'workers' ? '' : '\n\n⚠️ **Right now this server doesn\'t use Hive Workers to build**, so no tasks will show up until a maintainer switches the builder.'),
       },
       {
         title: '🛠️ Set up (once)', color: COLOR,
@@ -816,12 +902,12 @@ function workerGuide() {
         description: [
           '• **Pick one up:** `node hive-worker.mts list` shows open tasks; `node hive-worker.mts work` claims the next one, builds it and opens the pull request.',
           '• **Get handed one:** a maintainer can assign an idea to you. You get pinged in its post; run `node hive-worker.mts work` and your assigned task goes first.',
-          `• Claims go back to the queue after ${CLAIM_HOURS} hours without a pull request, so nothing gets stuck.`,
+          `• A claim goes back to the queue after ${plural(CLAIM_HOURS, 'hour')} without a pull request, so nothing gets stuck.`,
           '• Say here what you are picking up, so two people don\'t build the same thing.',
         ].join('\n'),
       },
       {
-        title: '⚠️ Know the risks', color: HONEY,
+        title: '⚠️ Know the risks', color: GOLD,
         description: [
           '• Each task was written by the community and approved by this server\'s maintainers, and it goes **straight to your AI**. You are trusting this server\'s Hive Mind.',
           '• hive-worker **shows you every task before you claim it**. Read it. If one asks for secrets, passwords or anything outside the project, say no and tell a maintainer.',
@@ -846,59 +932,65 @@ function workerGuide() {
   };
 }
 
-// #hive-stats: refreshed every 15 minutes by tick().
+// #hive-stats: one card per stat, refreshed every 15 minutes by tick().
 async function statsPost(db: Db, g: Guild) {
   const G = g.guild_id;
   const byStatus: Record<string, number> = Object.fromEntries(
     (await db.all<{ status: string; n: number }>('SELECT status, COUNT(*) AS n FROM ideas WHERE guild_id = ? GROUP BY status', G)).map((r) => [r.status, r.n]));
   const count = (...s: string[]) => s.reduce((sum, k) => sum + (byStatus[k] ?? 0), 0);
-  const total = Object.values(byStatus).reduce((a, b) => a + b, 0);
-  const open = count('discussing', 'voting', 'pending_owner');
   const going = count('approved', 'building', 'review', 'shipping_vote');
   const shipped = count('shipped');
   const turnedDown = count('rejected', 'vetoed');
   const decided = going + shipped + turnedDown;
   const votes = (await db.first<{ n: number }>('SELECT COUNT(*) AS n FROM votes v JOIN ideas i ON i.thread_id = v.thread_id WHERE i.guild_id = ?', G))!.n;
-  const top = async (sql: string) => {
+  const top = async (sql: string, unit: string) => {
     const rows = await db.all<{ id: string; n: number }>(sql, G);
-    return rows.length ? rows.map((r, k) => `${['🥇', '🥈', '🥉', '4.', '5.'][k]} <@${r.id}> · ${r.n}`).join('\n') : 'Nobody yet';
+    return rows.length ? rows.map((r, k) => `${['🥇', '🥈', '🥉', '4.', '5.'][k]} <@${r.id}> · ${plural(r.n, unit)}`).join('\n') : 'Nobody yet';
   };
-  const builders = await top("SELECT claimed_by AS id, COUNT(*) AS n FROM ideas WHERE guild_id = ? AND status = 'shipped' AND claimed_by IS NOT NULL GROUP BY claimed_by ORDER BY n DESC LIMIT 5");
-  const hot = await db.first<{ thread_id: string; n: number }>(
-    'SELECT v.thread_id, COUNT(*) AS n FROM votes v JOIN ideas i ON i.thread_id = v.thread_id WHERE i.guild_id = ? GROUP BY v.thread_id ORDER BY n DESC LIMIT 1', G);
-  const oldest = await db.first<{ thread_id: string }>(
-    "SELECT thread_id FROM ideas WHERE guild_id = ? AND status IN ('discussing', 'voting', 'pending_owner') ORDER BY CAST(thread_id AS INTEGER) LIMIT 1", G);
-  // Discord IDs encode their creation time.
-  const posted = (id: string) => /^\d+$/.test(id) ? `, posted ${when(Number((BigInt(id) >> 22n) + 1420070400000n))}` : '';
-  return {
-    embeds: [{
-      title: '📊 Hive stats', color: HONEY, timestamp: new Date().toISOString(), footer: { text: 'Updates every 15 minutes' },
-      fields: [
-        { name: '💡 Ideas', value: String(total), inline: true },
-        { name: '💬 Open', value: String(open), inline: true },
-        { name: '🔨 In progress', value: String(going), inline: true },
-        { name: '🍯 Shipped', value: String(shipped), inline: true },
-        { name: '❌ Turned down', value: String(turnedDown), inline: true },
-        { name: '✅ Approval rate', value: decided ? `${Math.round(((going + shipped) / decided) * 100)}%` : '—', inline: true },
-        { name: '🐝 Busiest bees (most ideas)', value: await top('SELECT author_id AS id, COUNT(*) AS n FROM ideas WHERE guild_id = ? GROUP BY author_id ORDER BY n DESC LIMIT 5'), inline: true },
-        { name: '🌸 Top pollinators (most shipped)', value: await top("SELECT author_id AS id, COUNT(*) AS n FROM ideas WHERE guild_id = ? AND status = 'shipped' GROUP BY author_id ORDER BY n DESC LIMIT 5"), inline: true },
-        { name: '📣 Loudest buzz (most votes)', value: await top('SELECT v.user_id AS id, COUNT(*) AS n FROM votes v JOIN ideas i ON i.thread_id = v.thread_id WHERE i.guild_id = ? GROUP BY v.user_id ORDER BY n DESC LIMIT 5'), inline: true },
-        ...(g.builder === 'workers' || builders !== 'Nobody yet' ? [{ name: '🔨 Hardest workers (builds shipped)', value: builders, inline: true }] : []),
-        { name: '🗳️ Votes cast', value: String(votes), inline: true },
-        { name: '🔥 Hottest idea', value: hot ? `<#${hot.thread_id}> · ${hot.n} votes` : 'No votes yet' },
-        { name: '🐢 Waiting longest', value: oldest ? `<#${oldest.thread_id}>${posted(oldest.thread_id)}` : 'Nothing waiting' },
-      ],
-    }],
-  };
+  // Titles as links rather than channel mentions, which show as "unknown" once a post is closed.
+  const idea = (row: { thread_id: string; title: string }) => `[${row.title.replace(/[[\]]/g, '')}](https://discord.com/channels/${G}/${row.thread_id})`;
+  const hot = await db.first<{ thread_id: string; title: string; n: number }>(
+    'SELECT i.thread_id, i.title, COUNT(*) AS n FROM votes v JOIN ideas i ON i.thread_id = v.thread_id WHERE i.guild_id = ? GROUP BY i.thread_id ORDER BY n DESC LIMIT 1', G);
+  const oldest = await db.first<{ thread_id: string; title: string }>(
+    "SELECT thread_id, title FROM ideas WHERE guild_id = ? AND status IN ('discussing', 'voting', 'pending_owner') ORDER BY CAST(thread_id AS INTEGER) LIMIT 1", G);
+  const posted = (id: string) => (/^\d+$/.test(id) ? `\nposted ${when(Number((BigInt(id) >> 22n) + 1420070400000n))}` : ''); // Discord IDs encode their creation time
+  const builders = await top("SELECT claimed_by AS id, COUNT(*) AS n FROM ideas WHERE guild_id = ? AND status = 'shipped' AND claimed_by IS NOT NULL GROUP BY claimed_by ORDER BY n DESC LIMIT 5", 'build');
+  const card = (title: string, description: string, color = COLOR) => ({ title, description, color });
+  const cards = [
+    {
+      title: '💡 Ideas', color: COLOR,
+      fields: [['Total', Object.values(byStatus).reduce((a, b) => a + b, 0)], ['Open', count('discussing', 'voting', 'pending_owner')], ['In progress', going],
+        ['Shipped', shipped], ['Turned down', turnedDown]].map(([name, value]) => ({ name: String(name), value: `**${value}**`, inline: true })),
+    },
+    card('✅ Approval rate', decided ? `**${Math.round(((going + shipped) / decided) * 100)}%** of decided ideas were approved` : 'Nothing decided yet', CYAN),
+    card('🗳️ Votes cast', `**${votes}**`, CYAN),
+    card('🧠 Most ideas', await top('SELECT author_id AS id, COUNT(*) AS n FROM ideas WHERE guild_id = ? GROUP BY author_id ORDER BY n DESC LIMIT 5', 'idea'), GOLD),
+    card('⚡ Top catalysts (ideas shipped)', await top("SELECT author_id AS id, COUNT(*) AS n FROM ideas WHERE guild_id = ? AND status = 'shipped' GROUP BY author_id ORDER BY n DESC LIMIT 5", 'idea'), PINK),
+    card('📡 Most votes cast', await top('SELECT v.user_id AS id, COUNT(*) AS n FROM votes v JOIN ideas i ON i.thread_id = v.thread_id WHERE i.guild_id = ? GROUP BY v.user_id ORDER BY n DESC LIMIT 5', 'vote'), CYAN),
+    ...(g.builder === 'workers' || builders !== 'Nobody yet' ? [card('🔨 Hardest workers (builds shipped)', builders, AMBER)] : []),
+    card('🔥 Hottest idea', hot ? `${idea(hot)} · ${plural(hot.n, 'vote')}` : 'No votes yet', AMBER),
+    card('⏳ Waiting longest', oldest ? `${idea(oldest)}${posted(oldest.thread_id)}` : 'Nothing waiting', COLOR),
+  ];
+  Object.assign(cards[cards.length - 1], { footer: { text: 'Updates every 15 minutes' }, timestamp: new Date().toISOString() });
+  return { embeds: cards };
 }
 
-// Keeps one bot message per channel current: edits it, or posts a fresh one if it was deleted.
-async function upsertPost(env: Env, db: Db, g: Guild, channel: string | null, column: 'guide_message_id' | 'stats_message_id', payload: object) {
+type PostColumn = 'guide_message_id' | 'stats_message_id' | 'workers_message_id';
+
+// Keeps one bot message per channel current: edits it, adopts the bot's own earlier post if the id was never saved,
+// or posts a fresh one if it was deleted.
+async function upsertPost(env: Env, db: Db, g: Guild, channel: string | null, column: PostColumn, payload: object) {
   if (!channel) return;
-  const id = g[column];
+  let id = g[column];
+  if (!id) {
+    const recent = await discord(env, 'GET', `/channels/${channel}/messages?limit=20`).catch(() => []);
+    id = (Array.isArray(recent) ? [...recent].reverse().find((m: any) => m.author?.id === env.DISCORD_APP_ID)?.id : null) ?? null;
+  }
   if (id) {
     try {
       await discord(env, 'PATCH', `/channels/${channel}/messages/${id}`, payload);
+      if (id !== g[column]) await db.run(`UPDATE guilds SET ${column} = ? WHERE guild_id = ?`, id, g.guild_id);
+      g[column] = id;
       return;
     } catch (e) {
       if (!String(e).includes('→ 404')) throw e;
@@ -909,17 +1001,21 @@ async function upsertPost(env: Env, db: Db, g: Guild, channel: string | null, co
   g[column] = posted.id;
 }
 
-const refreshGuide = (env: Env, db: Db, g: Guild) => upsertPost(env, db, g, g.guide_channel_id, 'guide_message_id', guide(g));
+// The two posts that describe the rules. Never fatal: a hiccup here shouldn't fail a settings change.
+async function refreshRules(env: Env, db: Db, g: Guild) {
+  await upsertPost(env, db, g, g.guide_channel_id, 'guide_message_id', guide(g)).catch((e) => console.error('Updating #hive-guide failed:', e));
+  await upsertPost(env, db, g, g.workers_channel_id, 'workers_message_id', workerGuide(g)).catch((e) => console.error('Updating #hive-workers failed:', e));
+}
 const refreshStats = async (env: Env, db: Db, g: Guild) => upsertPost(env, db, g, g.stats_channel_id, 'stats_message_id', await statsPost(db, g));
 
 function summary(s: Guild) {
   const voting = usesVoting(s);
   return [
-    `🐝 **HiveCode is ready** in <#${s.forum_id}>.`,
+    `🧠 **HiveCode is ready** in <#${s.forum_id}>.`,
     s.guide_channel_id ? `**Channels:** <#${s.guide_channel_id}> (live rules) · <#${s.stats_channel_id}> · <#${s.workers_channel_id}> (Hive Workers only)` : '',
-    `**Roles:** <@&${s.mind_role_id}> owners (setup + decisions) · <@&${s.manager_role_id}> managers (approve, veto, moderate the forum) · <@&${s.worker_role_id}> builders (claim tasks with their own AI) · <@&${s.pollinator_role_id}> had an idea shipped`,
+    `**Roles:** <@&${s.mind_role_id}> owners · <@&${s.manager_role_id}> managers · <@&${s.worker_role_id}> builders · <@&${s.catalyst_role_id}> had an idea shipped · <@&${s.synapse_role_id}> voted`,
     `**Approval:** ${label('approval', s.approval)}${voting ? `. ${rules(s)}` : ''}`,
-    voting ? `**Timing:** ${label('discuss_hours', s.discuss_hours)}, then ${label('vote_hours', s.vote_hours).toLowerCase()}` : '',
+    voting ? `**Timing:** ${s.discuss_hours ? `discuss for ${hours(s.discuss_hours)}` : 'no discussion'}, then vote for ${hours(s.vote_hours)}` : '',
     voting ? `**Who votes:** ${s.voter_role_id ? `<@&${s.voter_role_id}>` : 'everyone'}` : '',
     `**New options:** ${label('options_by', s.options_by)}`,
     `**Builder:** ${label('builder', s.builder)} · **Merge:** ${label('merge', s.merge)}`,
@@ -955,7 +1051,7 @@ async function createIdea(env: Env, db: Db, ix: any, g: Guild): Promise<string> 
     idea.thread_id, idea.guild_id, idea.author_id, idea.title, idea.options, idea.status, idea.phase_ends,
   );
   if (g.approval === 'auto') await approve(env, db, idea, g, 0, true);
-  return `🐝 Posted <#${thread.id}>`;
+  return `🧠 Posted <#${thread.id}>`;
 }
 
 async function saveEdit(env: Env, db: Db, ix: any, g: Guild): Promise<string> {
@@ -1007,11 +1103,22 @@ async function button(env: Env, db: Db, ix: any, g: Guild, owner: boolean): Prom
       idea.thread_id, round, ix.member.user.id, n,
     );
     const t = await tallyOf(db, idea, round);
+    // A first vote earns Synapse.
+    const synapse = async () => {
+      if (!g.synapse_role_id || ix.member.roles.includes(g.synapse_role_id)) return;
+      await discord(env, 'PUT', `/guilds/${g.guild_id}/members/${ix.member.user.id}/roles/${g.synapse_role_id}`).catch((e) => console.error('Giving Synapse failed:', e));
+    };
     if (verdict(t, g, false) === 'pass') {
       // Ack without editing; the follow-up re-renders the card, so no stale update can land after it.
-      return { body: { type: 6 }, after: () => round === 'idea' ? approve(env, db, idea, g, winner(t.counts), false) : shipVoteDone(env, db, idea, g, true) };
+      return {
+        body: { type: 6 },
+        after: async () => {
+          await synapse();
+          await (round === 'idea' ? approve(env, db, idea, g, winner(t.counts), false) : shipVoteDone(env, db, idea, g, true));
+        },
+      };
     }
-    return { body: { type: 7, data: await view(env, db, idea, g) } };
+    return { body: { type: 7, data: await view(env, db, idea, g) }, after: synapse };
   }
 
   if (!owner) return msg('Only Hive Mind and Hive Manager can use this button.');
@@ -1088,7 +1195,7 @@ async function workerToken(env: Env, db: Db, ix: any, g: Guild): Promise<Reply> 
   await db.run('INSERT INTO workers (token_hash, guild_id, user_id) VALUES (?, ?, ?)', await sha256(token), ix.guild_id, ix.member.user.id);
   const url = env.PUBLIC_URL || '<ask the server owner for the bot URL>';
   return msg([
-    '🐝 **Your Hive Worker login.** It is shown once and replaces any old one. Keep it private.',
+    '🧠 **Your Hive Worker login.** It is shown once and replaces any old one. Keep it private.',
     '1. Install Node 24+, Git, the GitHub CLI (then run `gh auth login`) and Claude Code or Codex.',
     '2. Download the script: open https://github.com/Jerdann/hivecode/blob/main/worker/hive-worker.mts and click **Download raw file**. It lands in your Downloads folder.',
     '3. In a terminal, run `cd ~/Downloads`, then paste:',
@@ -1139,7 +1246,7 @@ export async function api(req: Request, env: Env, db: Db): Promise<Response> {
       const next = await move(db, idea, ['approved'], 'building', { claimed_by: w.user_id, claimed_at: Date.now() });
       if (!next) return json({ error: 'Already claimed, or no longer open.' }, 409);
       await github(env, 'POST', `/repos/${env.GITHUB_REPO}/issues/${idea.issue}/labels`, { labels: ['hive:claimed'] }).catch(console.error);
-      await refresh(env, db, next, g).then(() => say(env, idea.thread_id, `🐝 <@${w.user_id}> claimed this and is building it.`)).catch(console.error);
+      await refresh(env, db, next, g).then(() => say(env, idea.thread_id, `🧠 <@${w.user_id}> claimed this and is building it.`)).catch(console.error);
       return json(task(next));
     }
     if (idea.claimed_by !== w.user_id || idea.status !== 'building') return json({ error: 'You have not claimed this task.' }, 403);

@@ -39,7 +39,7 @@ export default {
       const r = await registerCommands(env.DISCORD_APP_ID, env.DISCORD_TOKEN);
       return text(r.message, r.ok ? 200 : 500);
     }
-    if (req.method !== 'POST') return text('🐝 HiveCode is running');
+    if (req.method !== 'POST') return text('🧠 HiveCode is running');
     const body = await req.text();
     if (!(await verify(req, body, env.DISCORD_PUBLIC_KEY))) return new Response('Bad signature', { status: 401 });
     const ix = JSON.parse(body);

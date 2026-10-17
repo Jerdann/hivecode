@@ -83,8 +83,8 @@ jobs:
           git config user.email "hivecode@users.noreply.github.com"
           git checkout -B "$BRANCH"
           git add -A
-          git commit -m "🐝 $ISSUE_TITLE (#$ISSUE_NUMBER)"
+          git commit -m "🧠 $ISSUE_TITLE (#$ISSUE_NUMBER)"
           git push --force origin "$BRANCH"
-          gh pr create --head "$BRANCH" --title "🐝 $ISSUE_TITLE" \
+          gh pr create --head "$BRANCH" --title "🧠 $ISSUE_TITLE" \
             --body "Closes #$ISSUE_NUMBER"$'\n\n'"Built by the hive via HiveCode." \
             || echo "A PR for $BRANCH already exists; it now has the new commit."

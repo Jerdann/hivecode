@@ -88,10 +88,10 @@ function build(c: Config, task: Task): number | null {
   if (!run('git', ['status', '--porcelain'], dir)) return null;
 
   run('git', ['add', '-A'], dir);
-  run('git', ['commit', '-m', `🐝 ${task.title} (#${task.issue})`], dir);
+  run('git', ['commit', '-m', `🧠 ${task.title} (#${task.issue})`], dir);
   run('git', ['push', '--force', '-u', 'origin', task.branch], dir);
   const url = run('gh', ['pr', 'create', '--repo', task.repo, '--base', base, '--head', mine ? task.branch : `${me}:${task.branch}`,
-    '--title', `🐝 ${task.title}`, '--body', `Closes #${task.issue}\n\nBuilt by a Hive Worker via HiveCode.`], dir);
+    '--title', `🧠 ${task.title}`, '--body', `Closes #${task.issue}\n\nBuilt by a Hive Worker via HiveCode.`], dir);
   return Number(url.split('/').pop());
 }
 
@@ -99,8 +99,8 @@ async function work(c: Config, issue: number | undefined, yes: boolean) {
   const tasks = await hive<Task[]>(c, 'GET', '/api/tasks');
   // Tasks a maintainer assigned to you come first.
   const pick = issue ? tasks.find((t) => t.issue === issue) : tasks.find((t) => t.assigned) ?? tasks[0];
-  if (!pick) return console.log(issue ? `🐝 #${issue} isn't open for claiming.` : '🐝 No open tasks right now.');
-  console.log(`\n🐝 #${pick.issue}: ${pick.title}${pick.assigned ? ' (assigned to you)' : ''}\n\n${pick.spec}\n`);
+  if (!pick) return console.log(issue ? `🧠 #${issue} isn't open for claiming.` : '🧠 No open tasks right now.');
+  console.log(`\n🧠 #${pick.issue}: ${pick.title}${pick.assigned ? ' (assigned to you)' : ''}\n\n${pick.spec}\n`);
   if (!yes && !(await confirm(pick.assigned ? 'Build this now?' : 'Claim and build this?'))) return;
 
   const task = await hive<Task>(c, 'POST', `/api/tasks/${pick.issue}/claim`);
@@ -123,10 +123,10 @@ try {
     if (!url || !token) throw new Error(USAGE);
     mkdirSync(HOME, { recursive: true });
     writeFileSync(CONFIG, JSON.stringify({ url, token, agent: agent ?? DEFAULT_AGENT }, null, 2), { mode: 0o600 });
-    console.log(`🐝 Logged in. Config saved to ${CONFIG}`);
+    console.log(`🧠 Logged in. Config saved to ${CONFIG}`);
   } else if (cmd === 'list') {
     const tasks = await hive<Task[]>(config(), 'GET', '/api/tasks');
-    console.log(tasks.length ? tasks.map((t) => `#${t.issue}  ${t.title}${t.assigned ? '  (assigned to you)' : ''}`).join('\n') : '🐝 No open tasks right now.');
+    console.log(tasks.length ? tasks.map((t) => `#${t.issue}  ${t.title}${t.assigned ? '  (assigned to you)' : ''}`).join('\n') : '🧠 No open tasks right now.');
   } else if (cmd === 'work') {
     await work(config(), args[0] ? Number(args[0]) : undefined, rest.includes('--yes'));
   } else {

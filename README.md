@@ -190,7 +190,7 @@ Discord sends your bot a test request. If it saves without an error, you're conn
    ```bash
    npm start
    ```
-   You should see `🐝 HiveCode online as HiveCode#1234` and `🐝 Registered 3 commands.` **Leave this terminal open**; closing it stops the bot. If you need a terminal for anything else, open a second one and run `cd ~/Documents/hivecode` first.
+   You should see `🧠 HiveCode online as HiveCode#1234` and `🧠 Registered 3 commands.` **Leave this terminal open**; closing it stops the bot. If you need a terminal for anything else, open a second one and run `cd ~/Documents/hivecode` first.
 
 **Hive Workers on Node:** workers on other computers connect to the bot's Hive Worker API on port `8787`. If you'll use the `workers` builder, run the bot on a server with a public address, or expose the port with a tunnel (for example `cloudflared tunnel --url http://localhost:8787`). Put that public address in `PUBLIC_URL`.
 
@@ -199,7 +199,7 @@ Discord sends your bot a test request. If it saves without an error, you're conn
 HiveCode registers its commands (`/idea`, `/hive` and the **Add as option** right-click action) by itself, so usually there's nothing to do:
 
 - **Cloudflare:** it happened when Discord verified your endpoint in A6.
-- **Node:** it happens every time `npm start` runs; its terminal prints `🐝 Registered 3 commands.`
+- **Node:** it happens every time `npm start` runs; its terminal prints `🧠 Registered 3 commands.`
 
 💬 In your server, type `/`. You should see `/idea` and `/hive`. If you don't, restart Discord (Ctrl+R on desktop) and look again.
 
@@ -208,17 +208,17 @@ Still missing? 🌐 Open your bot's address with `/register` added to the end, e
 ### 6. Turn it on in your server
 
 1. 💬 Open your server, click into any text channel, type `/hive setup` and press Enter. (Ignore the options that pop up as you type; they're shortcuts for later.)
-2. 💬 **Already have a forum** (say, for suggestions)? HiveCode first asks where ideas should go: pick your forum, or click **➕ Create #hive-ideas**. An existing forum keeps its tags, permissions and posts; HiveCode adds its status tags and only tracks posts made with `/idea`.
+2. 💬 **Already have a forum** (say, for suggestions)? The first time, HiveCode asks where ideas should go: pick your forum, or click **➕ Create #hive-ideas**. You can switch later in the guide's first step, **Where do ideas go?** An existing forum keeps its tags, permissions and posts; HiveCode adds its status tags and only tracks posts made with `/idea`.
 3. 💬 A **setup guide** appears that only you can see. Each step explains one choice and has dropdowns with sensible defaults already picked. Change anything you like (it saves instantly), click **Next ▶** to move on and **✅ Finish** at the end. Steps that don't apply are skipped; for example, there are no voting steps if maintainers decide everything.
-4. 💬 HiveCode also creates a **🐝 HiveCode** category in your channel list, and **four roles**, explained in [Roles](#roles) below. You get **Hive Mind** automatically.
+4. 💬 HiveCode also creates a **🧠 HiveCode** category in your channel list, and **five roles**, explained in [Roles](#roles) below. You get **Hive Mind** automatically.
 
 | Channel | Who sees it | What it's for |
 |---|---|---|
 | **#hive-guide** | Everyone (read-only) | How ideas work in your server, every command and every role. The bot keeps it in sync with your settings. Only maintainers can post here |
 | **#hive-ideas** | Everyone | The ideas forum (unless you picked your own). Ideas start with `/idea`; everyone can reply |
-| **#hive-stats** | Everyone (read-only) | Fun numbers, refreshed every 15 minutes: ideas by stage, approval rate, votes cast, busiest bees, top pollinators, loudest buzz, hardest workers, hottest idea and the idea waiting longest |
+| **#hive-stats** | Everyone (read-only) | One card per stat, refreshed every 15 minutes: ideas by stage, approval rate, votes cast, most ideas, top catalysts, most votes cast, hardest workers, the hottest idea and the idea waiting longest |
 | **#hive-workers** | Hive Workers and maintainers only | A step-by-step guide to setting up `hive-worker`, the two ways to get work, the risks, and how to revoke access. Workers can chat and coordinate here |
-| **#hive-changelog** | Everyone (read-only) | Optional. A post for every shipped idea. Create it from the last step of the setup guide, or pick any channel |
+| **#hive-changelog** | Everyone (read-only) | Optional. A post for every shipped idea. Create it with the **➕ Create #hive-changelog** button in the last step of the setup guide, or pick any channel |
 
 5. 💬 Try it: type `/idea` in any channel, fill in the form, and your idea appears as a post in the ideas forum.
 
@@ -231,13 +231,14 @@ To change anything later, run `/hive setup` again: the guide opens with your cur
 | **Hive Mind** (gold) | You and other owners | Everything: run `/hive setup`, Approve, Veto, Open voting now, Assign |
 | **Hive Manager** (orange) | Trusted moderators | Approve, Veto, Open voting now and Assign, plus moderate the ideas forum (lock, close, pin and delete posts). They can't change setup |
 | **Hive Worker** (blue) | Members who code for the project with their own AI | Claim approved ideas and build them with `hive-worker` (see [Builders](#builders)). They need a GitHub account, but no access to your repo |
-| **Pollinator** (pink) | Anyone whose idea shipped | Given automatically the first time one of their ideas ships. Just bragging rights |
+| **Catalyst** (pink) | Anyone whose idea shipped | Given automatically the first time one of their ideas ships |
+| **Synapse** (cyan) | Anyone who voted | Given automatically on their first vote |
 
 Hive Mind and Hive Manager are the **maintainers**. Anyone with **Manage Server** also counts as Hive Mind.
 
 💬 To give someone a role: Server Settings → **Members** → find the person → click **+** next to their roles → pick the role. (Or right-click their name → **Roles**.)
 
-The member list on the right shows each role as its own group: Hive Mind, Hive Manager, Hive Worker, then Pollinator. If your server already has other grouped roles above them, drag the Hive roles higher in Server Settings → **Roles**. They must stay below the **HiveCode** role, or the bot can't manage them.
+The member list on the right shows each role as its own group: Hive Mind, Hive Manager, Hive Worker, Catalyst, then Synapse. If your server already has other grouped roles above them, drag the Hive roles higher in Server Settings → **Roles**. They must stay below the **HiveCode** role, or the bot can't manage them.
 
 When an idea needs a maintainer's OK, HiveCode pings **@Hive Mind** and **@Hive Manager** in its post. **✅ Approve** and **⛔ Veto** work at any point before an idea is decided, and each asks for an optional reason that gets posted in the thread.
 

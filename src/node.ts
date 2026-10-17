@@ -34,7 +34,7 @@ client.ws.on(GatewayDispatchEvents.InteractionCreate, async (ix) => {
   }
 });
 client.once('clientReady', async () => {
-  console.log(`🐝 HiveCode online as ${client.user?.tag}`);
+  console.log(`🧠 HiveCode online as ${client.user?.tag}`);
   console.log((await registerCommands(env.DISCORD_APP_ID, env.DISCORD_TOKEN)).message);
 });
 await client.login(env.DISCORD_TOKEN);
@@ -54,11 +54,11 @@ createServer(async (req, res) => {
     else if (req.url === '/register') {
       const r = await registerCommands(env.DISCORD_APP_ID, env.DISCORD_TOKEN);
       response = new Response(r.message, { status: r.ok ? 200 : 500 });
-    } else response = new Response('🐝 HiveCode is running');
+    } else response = new Response('🧠 HiveCode is running');
     res.writeHead(response.status, { 'Content-Type': response.headers.get('content-type') ?? 'text/plain; charset=utf-8' });
     res.end(await response.text());
   } catch (e) {
     console.error(e);
     res.writeHead(500).end();
   }
-}).listen(port, () => console.log(`🐝 Hive Worker API on http://localhost:${port}`));
+}).listen(port, () => console.log(`🧠 Hive Worker API on http://localhost:${port}`));

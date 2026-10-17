@@ -40,7 +40,7 @@ export async function registerCommands(appId: string | undefined, token: string 
     headers: { Authorization: `Bot ${token.trim()}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(commands),
   });
-  if (res.ok) return { ok: true, message: `🐝 Registered ${commands.length} commands. Type / in your server to see them.` };
+  if (res.ok) return { ok: true, message: `🧠 Registered ${commands.length} commands. Type / in your server to see them.` };
   if (res.status === 401) return { ok: false, message: '⚠️ Discord rejected the bot token (401). It is wrong or was reset. Get a fresh one (Developer Portal → Bot → Reset Token) and update DISCORD_TOKEN.' };
   return { ok: false, message: `⚠️ Discord said ${res.status}: ${(await res.text()).slice(0, 300)}` };
 }

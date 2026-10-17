@@ -37,7 +37,7 @@ function harness(replies: Record<string, unknown> = {}) {
   const calls: string[] = [];
   const sent: Record<string, any[]> = {}; // request bodies per route
   const counters = { role: 0, thread: 0, issue: 0, other: 0 };
-  replies = { 'GET /guilds/g/roles': [{ id: 'role1', position: 4 }, { id: 'role2', position: 3 }, { id: 'role3', position: 2 }, { id: 'role4', position: 1 }], ...replies };
+  replies = { 'GET /guilds/g/roles': [5, 4, 3, 2, 1].map((position, k) => ({ id: `role${k + 1}`, name: 'x', position })), ...replies };
   globalThis.fetch = (async (url: string, init: RequestInit = {}) => {
     const key = `${init.method ?? 'GET'} ${String(url).replace(/^https:\/\/[^/]+(\/api\/v10)?/, '')}`;
     calls.push(key);
@@ -84,21 +84,21 @@ test('setup → idea → vote → issue → worker → PR → ship, plus maintai
   ] }] } });
   assert.equal(get('SELECT builder FROM guilds').builder, 'workers');
 
-  // Roles: Worker, Manager, Mind, Pollinator, each landing at the bottom, then sorted; the person running setup gets Hive Mind.
-  assert.deepEqual(get('SELECT worker_role_id, manager_role_id, mind_role_id, pollinator_role_id FROM guilds'),
-    { worker_role_id: 'role1', manager_role_id: 'role2', mind_role_id: 'role3', pollinator_role_id: 'role4' });
+  // Roles: Worker, Manager, Mind, Catalyst, Synapse, each landing at the bottom, then sorted; the person running setup gets Hive Mind.
+  assert.deepEqual(get('SELECT worker_role_id, manager_role_id, mind_role_id, catalyst_role_id, synapse_role_id FROM guilds'),
+    { worker_role_id: 'role1', manager_role_id: 'role2', mind_role_id: 'role3', catalyst_role_id: 'role4', synapse_role_id: 'role5' });
   assert.deepEqual(sent['PATCH /guilds/g/roles'][0],
-    [{ id: 'role3', position: 4 }, { id: 'role2', position: 3 }, { id: 'role1', position: 2 }, { id: 'role4', position: 1 }]);
+    [{ id: 'role3', position: 5 }, { id: 'role2', position: 4 }, { id: 'role1', position: 3 }, { id: 'role4', position: 2 }, { id: 'role5', position: 1 }]);
   assert.ok(calls.includes('PUT /guilds/g/members/owner/roles/role3'), 'whoever runs setup gets Hive Mind');
   assert.deepEqual(sent['PUT /channels/hive-ideas/permissions/role2'][0], { type: 0, allow: String(1n << 34n) }, 'managers moderate the forum');
 
   // Channels: a category with the guide, the forum, stats and a private workers channel, each with its post.
-  assert.deepEqual(sent['POST /guilds/g/channels'].map((c) => c.name), ['🐝 HiveCode', 'hive-guide', 'hive-ideas', 'hive-stats', 'hive-workers']);
+  assert.deepEqual(sent['POST /guilds/g/channels'].map((c) => c.name), ['🧠 HiveCode', 'hive-guide', 'hive-ideas', 'hive-stats', 'hive-workers']);
   const workersChannel = sent['POST /guilds/g/channels'][4];
   assert.equal(workersChannel.permission_overwrites[0].deny, String(1n << 10n), 'only workers and maintainers can see #hive-workers');
-  assert.equal(sent['POST /channels/hive-guide/messages'][0].embeds[0].title, '🐝 How ideas work here');
-  assert.equal(sent['POST /channels/hive-stats/messages'][0].embeds[0].title, '📊 Hive stats');
-  assert.equal(sent['POST /channels/hive-workers/messages'][0].embeds[0].title, '🐝 Welcome, Hive Worker');
+  assert.equal(sent['POST /channels/hive-guide/messages'][0].embeds[0].title, '🧠 How ideas work here');
+  assert.deepEqual(sent['POST /channels/hive-stats/messages'][0].embeds.map((e: any) => e.title).slice(0, 3), ['💡 Ideas', '✅ Approval rate', '🗳️ Votes cast'], 'one card per stat');
+  assert.equal(sent['POST /channels/hive-workers/messages'][0].embeds[0].title, '🧠 Welcome, Hive Worker');
   const guideMessage = get('SELECT guide_message_id FROM guilds').guide_message_id;
   assert.ok(guideMessage, 'the guide message id is saved so it can be edited later');
 
@@ -113,6 +113,7 @@ test('setup → idea → vote → issue → worker → PR → ship, plus maintai
   const first = await vote('alice', 0);
   assert.equal(first.type, 7, 'first vote just updates the card');
   assert.equal(first.data.components[0].components[0].label, '👍 Yes · 1', 'one option = plain yes/no, no "A"');
+  assert.ok(calls.includes('PUT /guilds/g/members/alice/roles/role5'), 'a first vote earns Synapse');
   await vote('bob', 0);
   assert.equal(status(), 'approved', 'second vote clears the bar');
   assert.ok(calls.includes('POST /repos/o/r/issues'));
@@ -132,9 +133,9 @@ test('setup → idea → vote → issue → worker → PR → ship, plus maintai
   assert.equal((await call('POST', '/api/tasks/7/submit', { pr: 9 })).status, 200);
   assert.ok(calls.includes('PUT /repos/o/r/pulls/9/merge'), 'auto-merges a clean PR');
   assert.equal(status(), 'shipped');
-  assert.ok(calls.includes('PUT /guilds/g/members/alice/roles/role4'), 'the idea author becomes a Pollinator');
+  assert.ok(calls.includes('PUT /guilds/g/members/alice/roles/role4'), 'the idea author becomes a Catalyst');
   const shipped = sent['POST /channels/thread1/messages'].find((m) => m.content.startsWith('🚀'));
-  assert.deepEqual(shipped.allowed_mentions, { users: ['alice'] }, 'mentioning the role does not ping every Pollinator');
+  assert.deepEqual(shipped.allowed_mentions, { users: ['alice'] }, 'mentioning the role does not ping every Catalyst');
   await tick(env, db); // nothing left in flight; must not throw
 
   // Second idea with an alternative up front; a maintainer approves option B with a reason.
@@ -178,15 +179,23 @@ test('setup → idea → vote → issue → worker → PR → ship, plus maintai
 
   // Guided setup: no options opens the wizard; picks save right away, update the guide, and hide steps that no longer apply.
   await send({ type: 2, member: member('owner', '32', ['role3']), data: { name: 'hive', options: [{ name: 'setup' }] } });
-  assert.equal(original().embeds[0].title, '🐝 HiveCode setup · step 1 of 6');
-  const picked = await send({ type: 3, member: member('owner', '32'), data: { custom_id: 'setup:0:approval', values: ['owner'] } });
+  assert.equal(original().embeds[0].title, '🧠 HiveCode setup · step 1 of 7');
+  const picked = await send({ type: 3, member: member('owner', '32'), data: { custom_id: 'setup:1:approval', values: ['owner'] } });
   assert.equal(get('SELECT approval FROM guilds').approval, 'owner');
-  assert.equal(picked.data.embeds[0].title, '🐝 HiveCode setup · step 1 of 4', 'voting steps hidden when maintainers decide');
-  assert.match(sent[`PATCH /channels/hive-guide/messages/${guideMessage}`].at(-1).embeds[0].description, /A maintainer picks/, 'the guide follows the rules');
-  await send({ type: 3, member: member('owner', '32'), data: { custom_id: 'setup:5:changelog_id', values: [] } });
+  assert.equal(picked.data.embeds[0].title, '🧠 HiveCode setup · step 2 of 5', 'voting steps hidden when maintainers decide');
+  assert.match(sent[`PATCH /channels/hive-guide/messages/${guideMessage}`].at(-1).embeds[0].description, /There is no vote: a maintainer approves/, 'the guide follows the rules');
+  await send({ type: 3, member: member('owner', '32'), data: { custom_id: 'setup:6:changelog_id', values: [] } });
   assert.equal(get('SELECT changelog_id FROM guilds').changelog_id, null, 'clearing a dropdown clears the setting');
-  assert.equal((await send({ type: 3, member: member('owner', '32'), data: { custom_id: 'setup:mkchangelog:5' } })).type, 6);
+  assert.equal((await send({ type: 3, member: member('owner', '32'), data: { custom_id: 'setup:mkchangelog:6' } })).type, 6);
   assert.equal(get('SELECT changelog_id FROM guilds').changelog_id, 'hive-changelog', 'the wizard can create a changelog channel');
+  // Switch ideas to a forum the server already had, then back to a fresh #hive-ideas.
+  replies['GET /channels/other'] = { id: 'other', name: 'suggestions', available_tags: [] };
+  replies['PATCH /channels/other'] = { id: 'other', available_tags: TAG_NAMES.map((name, k) => ({ id: `o${k}`, name })) };
+  assert.equal((await send({ type: 3, member: member('owner', '32'), data: { custom_id: 'setup:0:forum_id', values: ['other'] } })).type, 6);
+  assert.equal(get('SELECT forum_id FROM guilds').forum_id, 'other');
+  assert.ok(calls.includes('PUT /channels/other/permissions/role2'), 'managers can moderate the new forum too');
+  await send({ type: 3, member: member('owner', '32'), data: { custom_id: 'setup:mkforum:0' } });
+  assert.equal(get('SELECT forum_id FROM guilds').forum_id, 'hive-ideas', 'the guide can create a fresh forum');
   const done = await send({ type: 3, member: member('owner', '32'), data: { custom_id: 'setup:done' } });
   assert.match(done.data.content, /HiveCode is ready/);
   assert.equal((await send({ type: 3, member: member('alice'), data: { custom_id: 'setup:go:1' } })).data.flags, 64, 'members cannot change setup');
@@ -215,5 +224,5 @@ test('first setup can use a forum the server already has', async () => {
   assert.equal(JSON.parse(get('SELECT tags FROM guilds').tags).discussing, 't0');
   assert.ok(calls.includes('PUT /channels/suggestions/permissions/app'), 'the bot can post there');
   assert.ok(!sent['POST /guilds/g/channels'].some((c) => c.name === 'hive-ideas'), 'no new forum');
-  assert.equal(original().embeds[0].title, '🐝 HiveCode setup · step 1 of 6', 'then the guide continues');
+  assert.equal(original().embeds[0].title, '🧠 HiveCode setup · step 1 of 7', 'then the guide continues');
 });
