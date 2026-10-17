@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Hive coding: your Discord community proposes and votes on features, AI agents build them.",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "engines": {
     "node": ">=24"

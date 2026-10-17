@@ -165,3 +165,11 @@ npm run check    # typecheck
 ```
 
 `src/hive.ts` holds all the logic. `src/cloudflare.ts` and `src/node.ts` are thin entry points around it.
+
+## Contributing
+
+Built something better? **Open a pull request here** instead of keeping a separate fork, so every hive gets the improvement. Bug reports and ideas are welcome in Issues.
+
+## License
+
+[Apache 2.0](LICENSE). Use it, modify it and run it anywhere, including commercially. If you redistribute HiveCode or a modified version, keep the [NOTICE](NOTICE) file so the credit travels with it.
