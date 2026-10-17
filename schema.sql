@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS guilds (
   worker_role_id TEXT NOT NULL,
   manager_role_id TEXT,                           -- Hive Manager: approve, veto, moderate the forum
   mind_role_id   TEXT,                            -- Hive Mind: owners (setup + decisions)
+  pollinator_role_id TEXT,                        -- given to authors whose idea shipped
   tags           TEXT NOT NULL,                   -- JSON: status -> forum tag id
   voter_role_id  TEXT,                            -- NULL = everyone can vote
   changelog_id   TEXT,

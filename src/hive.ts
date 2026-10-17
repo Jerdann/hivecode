@@ -26,7 +26,7 @@ type Status =
 
 export interface Guild {
   guild_id: string; forum_id: string; tags: string;
-  worker_role_id: string; manager_role_id: string | null; mind_role_id: string | null;
+  worker_role_id: string; manager_role_id: string | null; mind_role_id: string | null; pollinator_role_id: string | null;
   voter_role_id: string | null; changelog_id: string | null;
   min_votes: number; approve_pct: number; discuss_hours: number; vote_hours: number;
   approval: 'vote' | 'vote+owner' | 'owner' | 'auto';
@@ -53,6 +53,7 @@ const MAX_OPEN_IDEAS = 3;
 const COLOR = 0x4a64ff;
 const HONEY = 0xf5b700;
 const AMBER = 0xff8c1a;
+const BLOSSOM = 0xff7ab8;
 const MANAGE_GUILD = 0x20n;
 const SEND = 1n << 11n, MANAGE_THREADS = 1n << 34n, SEND_IN_THREADS = 1n << 38n;
 
@@ -318,7 +319,20 @@ async function ship(env: Env, db: Db, i: Idea, g: Guild) {
   const next = await move(db, i, ['approved', 'building', 'review', 'shipping_vote'], 'shipped', { phase_ends: null });
   if (!next) return;
   await refresh(env, db, next, g);
-  await say(env, i.thread_id, `🚀 Shipped! Thanks <@${i.author_id}> for the idea.`);
+  // The author earns Pollinator the first time one of their ideas ships.
+  let earned = false;
+  if (g.pollinator_role_id) {
+    try {
+      const author = await discord(env, 'GET', `/guilds/${g.guild_id}/members/${i.author_id}`);
+      if (!(author.roles ?? []).includes(g.pollinator_role_id)) {
+        await discord(env, 'PUT', `/guilds/${g.guild_id}/members/${i.author_id}/roles/${g.pollinator_role_id}`);
+        earned = true;
+      }
+    } catch (e) {
+      console.error('Giving Pollinator failed:', e); // e.g. the author left the server
+    }
+  }
+  await say(env, i.thread_id, `🚀 Shipped! Thanks <@${i.author_id}> for the idea.${earned ? ` You're now a <@&${g.pollinator_role_id}> 🌸` : ''}`, [i.author_id]);
   if (g.changelog_id) {
     const where = i.pr ? link(env, 'pull', i.pr) : link(env, 'issues', i.issue!);
     await discord(env, 'POST', `/channels/${g.changelog_id}/messages`, {
@@ -420,7 +434,7 @@ export async function interaction(ix: any, env: Env, db: Db): Promise<Reply> {
 // With options it applies them directly; without, it opens the step-by-step wizard.
 async function setup(env: Env, db: Db, ix: any, g: Guild | null, opts: { name: string; value: string | number }[]): Promise<string | object> {
   // Older installs lack the newer role columns. Adding one errors when it already exists, which is fine.
-  for (const col of ['mind_role_id', 'manager_role_id']) await db.run(`ALTER TABLE guilds ADD COLUMN ${col} TEXT`).catch(() => {});
+  for (const col of ['mind_role_id', 'manager_role_id', 'pollinator_role_id']) await db.run(`ALTER TABLE guilds ADD COLUMN ${col} TEXT`).catch(() => {});
   const o = Object.fromEntries(opts.map((x) => [x.name, x.value]));
   const roles = await ensureRoles(env, db, ix, g);
   let forumId = g?.forum_id;
@@ -436,8 +450,8 @@ async function setup(env: Env, db: Db, ix: any, g: Guild | null, opts: { name: s
       ],
     });
     const tags = Object.fromEntries(Object.entries(TAGS).map(([k, [name]]) => [k, forum.available_tags.find((t: any) => t.name === name).id]));
-    await db.run('INSERT INTO guilds (guild_id, forum_id, worker_role_id, manager_role_id, mind_role_id, tags) VALUES (?, ?, ?, ?, ?, ?)',
-      ix.guild_id, forum.id, roles.worker, roles.manager, roles.mind, JSON.stringify(tags));
+    await db.run('INSERT INTO guilds (guild_id, forum_id, worker_role_id, manager_role_id, mind_role_id, pollinator_role_id, tags) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ix.guild_id, forum.id, roles.worker, roles.manager, roles.mind, roles.pollinator, JSON.stringify(tags));
     forumId = forum.id;
   }
   if (roles.newManager) {
@@ -455,23 +469,24 @@ async function setup(env: Env, db: Db, ix: any, g: Guild | null, opts: { name: s
   return opts.length ? summary(s) : wizard(s, 0);
 }
 
-// Hive Mind (owners), Hive Manager (moderators) and Hive Worker (builders), each shown as its own group in the
-// member list, in that order. Whoever runs setup gets Hive Mind.
+// Hive Mind (owners), Hive Manager (moderators), Hive Worker (builders) and Pollinator (their idea shipped), each
+// shown as its own group in the member list, in that order. Whoever runs setup gets Hive Mind.
 async function ensureRoles(env: Env, db: Db, ix: any, g: Guild | null) {
   const guild = ix.guild_id;
-  const make = async (name: string, color: number): Promise<string> =>
-    (await discord(env, 'POST', `/guilds/${guild}/roles`, { name, color, hoist: true, mentionable: true })).id;
+  const make = async (name: string, color: number, mentionable = true): Promise<string> =>
+    (await discord(env, 'POST', `/guilds/${guild}/roles`, { name, color, hoist: true, mentionable })).id;
   const worker = g?.worker_role_id || await make('Hive Worker', COLOR);
   const manager = g?.manager_role_id || await make('Hive Manager', AMBER);
   const mind = g?.mind_role_id || await make('Hive Mind', HONEY);
+  const pollinator = g?.pollinator_role_id || await make('Pollinator', BLOSSOM, false);
   const newManager = !g?.manager_role_id;
-  if (newManager || !g?.mind_role_id) {
-    if (g) await db.run('UPDATE guilds SET manager_role_id = ?, mind_role_id = ? WHERE guild_id = ?', manager, mind, guild);
-    // New roles land at the bottom of the list. Reuse the three roles' slots in order: Mind, Manager, Worker. Cosmetic: never fatal.
+  if (newManager || !g?.mind_role_id || !g?.pollinator_role_id) {
+    if (g) await db.run('UPDATE guilds SET manager_role_id = ?, mind_role_id = ?, pollinator_role_id = ? WHERE guild_id = ?', manager, mind, pollinator, guild);
+    // New roles land at the bottom of the list. Reuse the roles' slots in order: Mind, Manager, Worker, Pollinator. Cosmetic: never fatal.
     try {
       await discord(env, 'PATCH', `/guilds/${guild}/roles/${worker}`, { hoist: true }); // older installs made it without
       const all: { id: string; position: number }[] = await discord(env, 'GET', `/guilds/${guild}/roles`);
-      const ids = [mind, manager, worker];
+      const ids = [mind, manager, worker, pollinator];
       const slots = ids.map((id) => all.find((r) => r.id === id)?.position ?? 0).sort((a, b) => b - a);
       await discord(env, 'PATCH', `/guilds/${guild}/roles`, ids.map((id, n) => ({ id, position: slots[n] })));
     } catch (e) {
@@ -481,7 +496,7 @@ async function ensureRoles(env: Env, db: Db, ix: any, g: Guild | null) {
   if (!ix.member.roles.includes(mind)) {
     await discord(env, 'PUT', `/guilds/${guild}/members/${ix.member.user.id}/roles/${mind}`).catch((e) => console.error('Giving Hive Mind failed:', e));
   }
-  return { worker, manager, mind, newManager };
+  return { worker, manager, mind, pollinator, newManager };
 }
 
 type Choice = [value: string | number, label: string, description?: string];
@@ -596,7 +611,7 @@ function summary(s: Guild) {
   const voting = usesVoting(s);
   return [
     `🐝 **HiveCode is ready** in <#${s.forum_id}>.`,
-    `**Roles:** <@&${s.mind_role_id}> owners (setup + decisions) · <@&${s.manager_role_id}> managers (approve, veto, moderate the forum) · <@&${s.worker_role_id}> builders (claim tasks with their own AI)`,
+    `**Roles:** <@&${s.mind_role_id}> owners (setup + decisions) · <@&${s.manager_role_id}> managers (approve, veto, moderate the forum) · <@&${s.worker_role_id}> builders (claim tasks with their own AI) · <@&${s.pollinator_role_id}> had an idea shipped`,
     `**Approval:** ${label('approval', s.approval)}${voting ? `. ${rules(s)}` : ''}`,
     voting ? `**Timing:** ${label('discuss_hours', s.discuss_hours)}, then ${label('vote_hours', s.vote_hours).toLowerCase()}` : '',
     voting ? `**Who votes:** ${s.voter_role_id ? `<@&${s.voter_role_id}>` : 'everyone'}` : '',

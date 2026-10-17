@@ -37,7 +37,7 @@ test('idea → vote → issue → worker claim → PR → auto-merge → shipped
   const sent: Record<string, any[]> = {}; // request bodies per route
   let threads = 0, roles = 0;
   const replies: Record<string, unknown> = {
-    'GET /guilds/g/roles': [{ id: 'role1', position: 3 }, { id: 'role2', position: 2 }, { id: 'role3', position: 1 }],
+    'GET /guilds/g/roles': [{ id: 'role1', position: 4 }, { id: 'role2', position: 3 }, { id: 'role3', position: 2 }, { id: 'role4', position: 1 }],
     'POST /repos/o/r/issues': { number: 7 },
     'GET /guilds/g/members/worker': { roles: ['role1'] },
     'GET /repos/o/r/pulls/9': { number: 9, merged: false, mergeable_state: 'clean', head: { ref: 'hive/issue-7' } },
@@ -72,10 +72,10 @@ test('idea → vote → issue → worker claim → PR → auto-merge → shipped
     { name: 'builder', value: 'workers' }, { name: 'merge', value: 'auto' },
   ] }] } });
   assert.equal(sqlite.prepare('SELECT builder FROM guilds').get()?.builder, 'workers');
-  // Created Worker (role1), Manager (role2), Mind (role3), each landing at the bottom; re-sorted Mind > Manager > Worker.
+  // Created Worker (role1), Manager (role2), Mind (role3), Pollinator (role4), each landing at the bottom; re-sorted.
   assert.deepEqual({ ...sqlite.prepare('SELECT worker_role_id, manager_role_id, mind_role_id FROM guilds').get() },
     { worker_role_id: 'role1', manager_role_id: 'role2', mind_role_id: 'role3' });
-  assert.deepEqual(sent['PATCH /guilds/g/roles'][0], [{ id: 'role3', position: 3 }, { id: 'role2', position: 2 }, { id: 'role1', position: 1 }]);
+  assert.deepEqual(sent['PATCH /guilds/g/roles'][0], [{ id: 'role3', position: 4 }, { id: 'role2', position: 3 }, { id: 'role1', position: 2 }, { id: 'role4', position: 1 }]);
   assert.ok(calls.includes('PUT /guilds/g/members/owner/roles/role3'), 'whoever runs setup gets Hive Mind');
   assert.deepEqual(sent['PUT /channels/forum/permissions/role2'][0], { type: 0, allow: String(1n << 34n) }, 'managers can moderate the forum');
 
@@ -107,6 +107,9 @@ test('idea → vote → issue → worker claim → PR → auto-merge → shipped
   assert.equal((await call('POST', '/api/tasks/7/submit', { pr: 9 })).status, 200);
   assert.ok(calls.includes('PUT /repos/o/r/pulls/9/merge'), 'auto-merges a clean PR');
   assert.equal(status(), 'shipped');
+  assert.ok(calls.includes('PUT /guilds/g/members/alice/roles/role4'), 'the idea author becomes a Pollinator');
+  const shipped = sent['POST /channels/thread1/messages'].find((m) => m.content.startsWith('🚀'));
+  assert.deepEqual(shipped.allowed_mentions, { users: ['alice'] }, 'mentioning the role does not ping every Pollinator');
 
   await tick(env, db); // nothing left in flight; must not throw
 

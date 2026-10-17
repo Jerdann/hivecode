@@ -211,7 +211,7 @@ Still missing? 🌐 Open your bot's address with `/register` added to the end, e
 2. 💬 A **setup guide** appears that only you can see. Each step explains one choice and has dropdowns with sensible defaults already picked. Change anything you like (it saves instantly), click **Next ▶** to move on and **✅ Finish** at the end. Steps that don't apply are skipped; for example, there are no voting steps if maintainers decide everything.
 3. 💬 HiveCode also creates:
    - **#hive-ideas**, a forum channel in your channel list. Members post ideas with `/idea`; only HiveCode can start posts there, and everyone can reply.
-   - **Three roles**, explained in [Roles](#roles) below. You get **Hive Mind** automatically.
+   - **Four roles**, explained in [Roles](#roles) below. You get **Hive Mind** automatically.
 4. 💬 Try it: type `/idea` in any channel, fill in the form, and your idea appears as a post in **#hive-ideas**.
 
 To change anything later, run `/hive setup` again: the guide opens with your current choices selected.
@@ -223,12 +223,13 @@ To change anything later, run `/hive setup` again: the guide opens with your cur
 | **Hive Mind** (gold) | You and other owners | Everything: run `/hive setup`, Approve, Veto, Open voting now |
 | **Hive Manager** (orange) | Trusted moderators | Approve, Veto and Open voting now, plus moderate **#hive-ideas** (lock, close, pin and delete posts). They can't change setup |
 | **Hive Worker** (blue) | Members who code for the project with their own AI | Claim approved ideas and build them with `hive-worker` (see [Builders](#builders)). They need a GitHub account, but no access to your repo |
+| **Pollinator** (pink) | Anyone whose idea shipped | Given automatically the first time one of their ideas ships. Just bragging rights |
 
 Hive Mind and Hive Manager are the **maintainers**. Anyone with **Manage Server** also counts as Hive Mind.
 
 💬 To give someone a role: Server Settings → **Members** → find the person → click **+** next to their roles → pick the role. (Or right-click their name → **Roles**.)
 
-The member list on the right shows each role as its own group, Hive Mind first. If your server already has other grouped roles above them, drag the Hive roles higher in Server Settings → **Roles**. They must stay below the **HiveCode** role, or the bot can't manage them.
+The member list on the right shows each role as its own group: Hive Mind, Hive Manager, Hive Worker, then Pollinator. If your server already has other grouped roles above them, drag the Hive roles higher in Server Settings → **Roles**. They must stay below the **HiveCode** role, or the bot can't manage them.
 
 When an idea needs a maintainer's OK, HiveCode pings **@Hive Mind** and **@Hive Manager** in its post. **✅ Approve** and **⛔ Veto** work at any point before an idea is decided, and each asks for an optional reason that gets posted in the thread.
 
