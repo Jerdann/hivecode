@@ -523,10 +523,12 @@ async function workerToken(env: Env, db: Db, ix: any, g: Guild): Promise<Reply> 
   await db.run('INSERT INTO workers (token_hash, guild_id, user_id) VALUES (?, ?, ?)', await sha256(token), ix.guild_id, ix.member.user.id);
   const url = env.PUBLIC_URL || '<ask the server owner for the bot URL>';
   return msg([
-    '🐝 Your Hive Worker token. It is shown once and replaces any old one:',
+    '🐝 **Your Hive Worker login.** It is shown once and replaces any old one. Keep it private.',
+    '1. Install Node 24+, Git, the GitHub CLI (then run `gh auth login`) and Claude Code or Codex.',
+    '2. Download the script: open https://github.com/Jerdann/hivecode/blob/main/worker/hive-worker.mts and click **Download raw file**. It lands in your Downloads folder.',
+    '3. In a terminal, run `cd ~/Downloads`, then paste:',
     '```', `node hive-worker.mts login ${url} ${token}`, '```',
-    'Get `hive-worker.mts` from the HiveCode repo (`worker/` folder). You need Node 24+, git, the GitHub CLI (`gh auth login`) and an AI coding CLI (Claude Code by default).',
-    'Then run `node hive-worker.mts work` to claim and build a task.',
+    '4. Run `node hive-worker.mts work` to claim and build a task. Full guide: https://github.com/Jerdann/hivecode#workers-hive-workers-the-hive-builds-it',
   ].join('\n'));
 }
 

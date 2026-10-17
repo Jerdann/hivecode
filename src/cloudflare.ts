@@ -16,11 +16,15 @@ const d1 = (db: D1Database): Db => ({
 const bytes = (hex: string) => Uint8Array.from(hex.match(/../g) ?? [], (h) => parseInt(h, 16));
 
 // Discord signs every request; reject anything that isn't from them.
-async function verify(req: Request, body: string, publicKey: string) {
+async function verify(req: Request, body: string, publicKey: string | undefined) {
   const sig = req.headers.get('x-signature-ed25519');
   const time = req.headers.get('x-signature-timestamp');
   if (!sig || !time) return false;
-  const key = await crypto.subtle.importKey('raw', bytes(publicKey), { name: 'Ed25519' }, false, ['verify']);
+  if (!publicKey?.trim()) {
+    console.error('DISCORD_PUBLIC_KEY is not set. Run: npx wrangler secret put DISCORD_PUBLIC_KEY');
+    return false;
+  }
+  const key = await crypto.subtle.importKey('raw', bytes(publicKey.trim()), { name: 'Ed25519' }, false, ['verify']);
   return crypto.subtle.verify('Ed25519', key, bytes(sig), new TextEncoder().encode(time + body));
 }
 
