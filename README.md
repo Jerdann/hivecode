@@ -13,7 +13,7 @@ Self-hosted, free, works with Claude Code, Codex, or whatever agent you use.</p>
 ```
 
 1. **Someone runs `/idea`.** HiveCode opens a post in your `#hive-ideas` forum. Its first message is the **spec card**: the official version of the idea.
-2. **The community discusses it** in the replies. A good suggestion can become a competing option: right-click the reply → **Apps → Add as option** (up to 4 options).
+2. **The community discusses it** in the replies. Ideas can have competing options: the author can add up to two alternatives right in the `/idea` form, and a good reply can become one too (right-click it → **Apps → Add as option**, up to 4 options).
 3. **The card freezes and the hive votes.** Buttons for each option, plus Reject. You choose the bar: a minimum number of votes, a yes percentage, or both.
 4. **Approved ideas become GitHub issues** containing exactly the text people voted on. The discussion itself never goes to the AI.
 5. **Something builds it**, whichever you pick: you, an AI agent in a GitHub Action, or **Hive Workers** (community members running their own AI on their own machines).
@@ -228,7 +228,7 @@ To change a rule later, run `/hive setup` again and pick the option from the lis
 | `voter_role` | Only this role can vote. Pick `@everyone` to open it back up | everyone |
 | `changelog` | Channel that announces shipped ideas | none |
 
-**Maintainers** are members whose role has **Manage Server** (💬 Server Settings → **Roles** → pick a role → **Permissions**). Only they can use the Approve, Veto and "Open voting now" buttons.
+**Maintainers** are members whose role has **Manage Server** (💬 Server Settings → **Roles** → pick a role → **Permissions**). Only they can use the **✅ Approve**, **⛔ Veto** and **Open voting now** buttons. Approve and Veto work at any point before an idea is decided, and each asks for an optional reason that gets posted in the thread.
 
 ### Changing settings later
 

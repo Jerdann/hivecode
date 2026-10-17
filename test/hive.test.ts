@@ -34,9 +34,10 @@ test('idea → vote → issue → worker claim → PR → auto-merge → shipped
 
   // Fake Discord + GitHub: just enough of each route.
   const calls: string[] = [];
+  const sent: Record<string, any[]> = {}; // request bodies per route
+  let threads = 0;
   const replies: Record<string, unknown> = {
     'POST /guilds/g/roles': { id: 'role' },
-    'POST /channels/forum/threads': { id: 'thread' },
     'POST /repos/o/r/issues': { number: 7 },
     'GET /guilds/g/members/worker': { roles: ['role'] },
     'GET /repos/o/r/pulls/9': { number: 9, merged: false, mergeable_state: 'clean', head: { ref: 'hive/issue-7' } },
@@ -47,6 +48,8 @@ test('idea → vote → issue → worker claim → PR → auto-merge → shipped
   globalThis.fetch = (async (url: string, init: RequestInit = {}) => {
     const key = `${init.method ?? 'GET'} ${String(url).replace(/^https:\/\/[^/]+(\/api\/v10)?/, '')}`;
     calls.push(key);
+    if (init.body) (sent[key] ??= []).push(JSON.parse(String(init.body)));
+    if (key === 'POST /channels/forum/threads') return Response.json({ id: `thread${++threads}` });
     if (key === 'POST /guilds/g/channels') {
       const tags = JSON.parse(String(init.body)).available_tags.map((t: any, n: number) => ({ ...t, id: `tag${n}` }));
       return Response.json({ id: 'forum', available_tags: tags });
@@ -60,7 +63,7 @@ test('idea → vote → issue → worker claim → PR → auto-merge → shipped
     await reply.after?.();
     return reply.body as any;
   };
-  const status = () => sqlite.prepare("SELECT status FROM ideas WHERE thread_id = 'thread'").get()?.status;
+  const status = (id = 'thread1') => sqlite.prepare('SELECT status FROM ideas WHERE thread_id = ?').get(id)?.status;
 
   // Owner sets up: vote with 2+ votes at 60%, no discussion phase, Hive Workers build, auto-merge.
   await send({ type: 2, member: member('owner', '32'), data: { name: 'hive', options: [{ name: 'setup', options: [
@@ -76,8 +79,10 @@ test('idea → vote → issue → worker claim → PR → auto-merge → shipped
   ] } });
   assert.equal(status(), 'voting');
 
-  const vote = (id: string, choice: number) => send({ type: 3, channel_id: 'thread', member: member(id), data: { custom_id: `vote:${choice}` } });
-  assert.equal((await vote('alice', 0)).type, 7, 'first vote just updates the card');
+  const vote = (id: string, choice: number) => send({ type: 3, channel_id: 'thread1', member: member(id), data: { custom_id: `vote:${choice}` } });
+  const first = await vote('alice', 0);
+  assert.equal(first.type, 7, 'first vote just updates the card');
+  assert.equal(first.data.components[0].components[0].label, '👍 Yes · 1', 'one option = plain yes/no, no "A"');
   await vote('bob', 0);
   assert.equal(status(), 'approved', 'second vote clears the bar');
   assert.ok(calls.includes('POST /repos/o/r/issues'));
@@ -97,4 +102,24 @@ test('idea → vote → issue → worker claim → PR → auto-merge → shipped
   assert.equal(status(), 'shipped');
 
   await tick(env, db); // nothing left in flight; must not throw
+
+  // Second idea with an alternative up front; a maintainer approves option B with a reason.
+  await send({ type: 5, member: member('alice'), data: { custom_id: 'idea', components: [
+    { type: 1, components: [{ type: 4, custom_id: 'title', value: 'Themes' }] },
+    { type: 1, components: [{ type: 4, custom_id: 'spec', value: 'Light and dark themes' }] },
+    { type: 1, components: [{ type: 4, custom_id: 'alt1', value: 'Full custom colors' }] },
+    { type: 1, components: [{ type: 4, custom_id: 'alt2', value: '' }] },
+  ] } });
+  assert.equal(JSON.parse(String(sqlite.prepare("SELECT options FROM ideas WHERE thread_id = 'thread2'").get()?.options)).length, 2, 'empty alternatives are skipped');
+  const click = (id: string, perms: string, custom_id: string) => send({ type: 3, channel_id: 'thread2', member: member(id, perms), data: { custom_id } });
+  assert.equal((await click('alice', '0', 'approve:1')).data.flags, 64, 'only maintainers can approve');
+  assert.equal((await click('owner', '32', 'approve:1')).type, 9, 'approve asks for a reason');
+  await send({ type: 5, channel_id: 'thread2', member: member('owner', '32'), data: { custom_id: 'approve:1', components: [
+    { type: 1, components: [{ type: 4, custom_id: 'reason', value: 'Ship the fun one' }] },
+  ] } });
+  assert.equal(status('thread2'), 'approved');
+  assert.equal(sqlite.prepare("SELECT winner FROM ideas WHERE thread_id = 'thread2'").get()?.winner, 1);
+  const note = sent['POST /channels/thread2/messages'].find((m) => m.content.includes('Ship the fun one'));
+  assert.equal(note?.content, '✅ Approved option **B** by <@owner>: Ship the fun one');
+  assert.deepEqual(note.allowed_mentions, { users: ['owner'] }, 'typed reasons can only ping the maintainer');
 });

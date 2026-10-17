@@ -97,9 +97,10 @@ const github = (env: Env, method: string, path: string, body?: unknown): Promise
     },
   });
 
-// Never put community-written text in here: user and role pings are allowed.
-const say = (env: Env, channel: string, content: string) =>
-  discord(env, 'POST', `/channels/${channel}/messages`, { content, allowed_mentions: { parse: ['users', 'roles'] } });
+// By default any user or role mentioned pings. When the message includes text someone typed, pass
+// `users` so only those people can be pinged.
+const say = (env: Env, channel: string, content: string, users?: string[]) =>
+  discord(env, 'POST', `/channels/${channel}/messages`, { content, allowed_mentions: users ? { users } : { parse: ['users', 'roles'] } });
 
 // ---------- Spec card ----------
 
@@ -112,7 +113,7 @@ function statusLine(env: Env, i: Idea, g: Guild): string {
   switch (i.status) {
     case 'discussing': return i.phase_ends ? `💬 Discussing. Voting opens ${when(i.phase_ends)}` : '💬 Discussing. A maintainer will pick an option.';
     case 'voting': return `📊 Voting closes ${when(i.phase_ends!)}\n${rules(g)}`;
-    case 'pending_owner': return `⏳ The hive picked **${letter(i.winner!)}**. Waiting for a maintainer to confirm.`;
+    case 'pending_owner': return `⏳ The hive ${options(i).length > 1 ? `picked **Option ${letter(i.winner!)}**` : 'voted yes'}. Waiting for a maintainer to confirm.`;
     case 'approved':
       if (!i.issue) return '✅ Approved. Creating the GitHub issue…';
       return `✅ Approved as ${link(env, 'issues', i.issue)}. ${g.builder === 'workers' ? 'Waiting for a Hive Worker to claim it.' : 'Waiting for a maintainer to build it.'}`;
@@ -130,16 +131,22 @@ const row = (...components: unknown[]) => ({ type: 1, components });
 
 function controls(i: Idea, g: Guild, t: Tally) {
   const opts = options(i);
+  const single = opts.length === 1;
+  const all = opts.map((_, n) => n);
+  // Maintainer tools: approve (per option when there are several) or veto, any time before it's decided.
+  const decide = (which: number[]) => row(
+    ...which.map((n) => btn(`approve:${n}`, single ? '✅ Approve' : `✅ Approve ${letter(n)}`, 3)),
+    btn('veto', '⛔ Veto', 4),
+  );
   switch (i.status) {
-    case 'discussing': return [row(
-      ...(usesVoting(g) ? [btn('open', 'Open voting now')] : opts.map((_, n) => btn(`approve:${n}`, `Approve ${letter(n)}`, 3))),
-      btn('veto', 'Veto', 4),
-    )];
+    case 'discussing': return usesVoting(g) ? [row(btn('open', 'Open voting now')), decide(all)] : [decide(all)];
     case 'voting': return [
-      row(...opts.map((_, n) => btn(`vote:${n}`, `${letter(n)} · ${t.counts[n]}`, 1)), btn('vote:-1', `Reject · ${t.reject}`, 4)),
-      row(btn('veto', 'Veto (maintainers)')),
+      row(...(single
+        ? [btn('vote:0', `👍 Yes · ${t.counts[0]}`, 1), btn('vote:-1', `👎 No · ${t.reject}`)]
+        : [...opts.map((_, n) => btn(`vote:${n}`, `Option ${letter(n)} · ${t.counts[n]}`, 1)), btn('vote:-1', `Reject · ${t.reject}`)])),
+      decide(all),
     ];
-    case 'pending_owner': return [row(btn(`approve:${i.winner}`, `Approve ${letter(i.winner!)}`, 3), btn('veto', 'Veto', 4))];
+    case 'pending_owner': return [decide([i.winner!])];
     case 'shipping_vote': return [row(btn('ship:0', `Ship it · ${t.counts[0]}`, 3), btn('ship:-1', `Not yet · ${t.reject}`, 4))];
     default: return [];
   }
@@ -152,12 +159,14 @@ async function tallyOf(db: Db, i: Idea, round: 'idea' | 'ship') {
 
 async function view(env: Env, db: Db, i: Idea, g: Guild) {
   const t = await tallyOf(db, i, i.status === 'shipping_vote' ? 'ship' : 'idea');
-  const description = options(i)
-    .map((o, n) => `${i.winner === n ? '✅' : `**${letter(n)}**`}  ${o.text}${n ? `\n_suggested by <@${o.by}>_` : ''}`)
+  const opts = options(i);
+  // The post already shows the title, so the card is just the spec. Options only get labels once there are two.
+  const description = opts.length === 1 ? opts[0].text : opts
+    .map((o, n) => `${i.winner === n ? '✅ ' : ''}**Option ${letter(n)}**${n ? `  _suggested by <@${o.by}>_` : ''}\n${o.text}`)
     .join('\n\n');
-  const footer = i.status === 'discussing' ? 'Reply below to discuss · right-click a reply → Apps → Add as option' : 'HiveCode';
+  const footer = i.status === 'discussing' ? 'Reply below to discuss · to add another option, right-click a reply → Apps → Add as option' : 'HiveCode';
   return {
-    embeds: [{ title: i.title, description, color: COLOR, fields: [{ name: 'Status', value: statusLine(env, i, g) }], footer: { text: `🐝 ${footer}` } }],
+    embeds: [{ description, color: COLOR, fields: [{ name: 'Status', value: statusLine(env, i, g) }], footer: { text: `🐝 ${footer}` } }],
     components: controls(i, g, t),
   };
 }
@@ -195,7 +204,7 @@ async function approve(env: Env, db: Db, i: Idea, g: Guild, choice: number, byOw
     const next = await move(db, i, ['voting'], 'pending_owner', { winner: choice, phase_ends: null });
     if (!next) return;
     await refresh(env, db, next, g);
-    await say(env, i.thread_id, `⏳ The hive picked option **${letter(choice)}**. A maintainer needs to confirm.`);
+    await say(env, i.thread_id, `⏳ The hive ${options(i).length > 1 ? `picked **Option ${letter(choice)}**` : 'voted yes'}. A maintainer needs to confirm.`);
     return;
   }
   const next = await move(db, i, ['discussing', 'voting', 'pending_owner'], 'approved', { winner: choice, phase_ends: null });
@@ -235,10 +244,10 @@ async function ensureIssue(env: Env, db: Db, i: Idea, g: Guild) {
     : `✅ Created ${l} for the maintainer to build.`);
 }
 
-async function reject(env: Env, db: Db, i: Idea, g: Guild, to: 'rejected' | 'vetoed', from: Status[], note: string) {
+async function reject(env: Env, db: Db, i: Idea, g: Guild, to: 'rejected' | 'vetoed', from: Status[], note: string, users?: string[]) {
   const next = await move(db, i, from, to, { phase_ends: null });
   if (!next) return;
-  await say(env, i.thread_id, note);
+  await say(env, i.thread_id, note, users);
   await refresh(env, db, next, g);
   if (next.issue) await github(env, 'PATCH', `/repos/${env.GITHUB_REPO}/issues/${next.issue}`, { state: 'closed', state_reason: 'not_planned' });
 }
@@ -337,9 +346,10 @@ function fields(ix: any): Record<string, string> {
   return out;
 }
 
-const input = (custom_id: string, label: string, style: number, max_length: number, value?: string) =>
-  row({ type: 4, custom_id, label, style, max_length, required: true, ...(value ? { value } : {}) });
+const input = (custom_id: string, label: string, style: number, max_length: number, value?: string, required = true) =>
+  row({ type: 4, custom_id, label, style, max_length, required, ...(value ? { value } : {}) });
 
+// New ideas can come with up to two alternatives, which become options B and C. Editing only touches the main one.
 const ideaModal = (custom_id: string, title: string, idea?: Idea) => ({
   body: {
     type: 9,
@@ -347,6 +357,10 @@ const ideaModal = (custom_id: string, title: string, idea?: Idea) => ({
       custom_id, title, components: [
         input('title', 'Title', 1, 90, idea?.title),
         input('spec', 'What should be built?', 2, 1500, idea && options(idea)[0].text),
+        ...(idea ? [] : [
+          input('alt1', 'Another way to do it (optional)', 2, 500, undefined, false),
+          input('alt2', 'A third way (optional)', 2, 500, undefined, false),
+        ]),
       ],
     },
   },
@@ -381,6 +395,7 @@ export async function interaction(ix: any, env: Env, db: Db): Promise<Reply> {
   if (ix.type === 2 && ix.data.type === 3) return addOption(env, db, ix, g, owner);
   if (ix.type === 5 && ix.data.custom_id === 'idea') return deferred(env, ix, () => createIdea(env, db, ix, g));
   if (ix.type === 5 && ix.data.custom_id === 'edit') return deferred(env, ix, () => saveEdit(env, db, ix, g));
+  if (ix.type === 5 && /^(veto|approve:\d+)$/.test(ix.data.custom_id)) return decide(env, db, ix, g, owner);
   if (ix.type === 3) return button(env, db, ix, g, owner);
   return msg('Unknown command.');
 }
@@ -431,7 +446,8 @@ async function createIdea(env: Env, db: Db, ix: any, g: Guild): Promise<string> 
   }
   const idea: Idea = {
     thread_id: '', guild_id: ix.guild_id, author_id: user, title: f.title.trim(),
-    options: JSON.stringify([{ text: f.spec.trim(), by: user }]), status, phase_ends,
+    options: JSON.stringify([f.spec, f.alt1, f.alt2].map((t) => t?.trim()).filter(Boolean).map((text) => ({ text, by: user }))),
+    status, phase_ends,
     winner: null, issue: null, pr: null, claimed_by: null, claimed_at: null, merge_state: null,
   };
   const thread = await discord(env, 'POST', `/channels/${g.forum_id}/threads`, {
@@ -505,15 +521,44 @@ async function button(env: Env, db: Db, ix: any, g: Guild, owner: boolean): Prom
   }
 
   if (!owner) return msg('Only server managers can use this button.');
+  if (action === 'open') return { body: { type: 6 }, after: () => openVoting(env, db, idea, g) };
+  // Approve and Veto first ask for an optional reason; decide() acts on the answer.
   if (action === 'veto') {
     if (!VETOABLE.includes(idea.status)) return msg("Too late to veto. It's already being built.");
-    return { body: { type: 6 }, after: () => reject(env, db, idea, g, 'vetoed', VETOABLE, `⛔ Vetoed by <@${ix.member.user.id}>.`) };
+    return reasonModal('veto', 'Veto this idea');
   }
-  if (action === 'open') return { body: { type: 6 }, after: () => openVoting(env, db, idea, g) };
   if (action === 'approve' && Number.isInteger(n) && n >= 0 && n < options(idea).length) {
-    return { body: { type: 6 }, after: () => approve(env, db, idea, g, n, true) };
+    return reasonModal(`approve:${n}`, options(idea).length > 1 ? `Approve option ${letter(n)}` : 'Approve this idea');
   }
   return msg('Unknown button.');
+}
+
+const reasonModal = (custom_id: string, title: string): Reply => ({
+  body: { type: 9, data: { custom_id, title, components: [input('reason', 'Reason (optional, posted in the thread)', 2, 500, undefined, false)] } },
+});
+
+async function decide(env: Env, db: Db, ix: any, g: Guild, owner: boolean): Promise<Reply> {
+  if (!owner) return msg('Only server managers can do that.');
+  const idea = await db.first<Idea>('SELECT * FROM ideas WHERE thread_id = ?', ix.channel_id);
+  if (!idea) return msg('This idea is no longer tracked.');
+  const by: string = ix.member.user.id;
+  const reason = (fields(ix).reason ?? '').trim();
+  const why = reason ? `: ${reason}` : '.';
+  const [action, arg] = String(ix.data.custom_id).split(':');
+  if (action === 'veto') {
+    return { body: { type: 6 }, after: () => reject(env, db, idea, g, 'vetoed', VETOABLE, `⛔ Vetoed by <@${by}>${why}`, [by]) };
+  }
+  const n = Number(arg);
+  if (!['discussing', 'voting', 'pending_owner'].includes(idea.status)) return msg('This idea has already been decided.');
+  if (!(n >= 0 && n < options(idea).length)) return msg('Unknown option.');
+  const which = options(idea).length > 1 ? ` option **${letter(n)}**` : '';
+  return {
+    body: { type: 6 },
+    after: async () => {
+      await say(env, idea.thread_id, `✅ Approved${which} by <@${by}>${why}`, [by]);
+      await approve(env, db, idea, g, n, true);
+    },
+  };
 }
 
 async function workerToken(env: Env, db: Db, ix: any, g: Guild): Promise<Reply> {
