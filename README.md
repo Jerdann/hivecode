@@ -190,19 +190,20 @@ Discord sends your bot a test request. If it saves without an error, you're conn
    ```bash
    npm start
    ```
-   You should see `🐝 HiveCode online as HiveCode#1234`. **Leave this terminal open**; closing it stops the bot. For the next steps, open a second terminal and run `cd ~/Documents/hivecode` first.
+   You should see `🐝 HiveCode online as HiveCode#1234` and `🐝 Registered 3 commands.` **Leave this terminal open**; closing it stops the bot. If you need a terminal for anything else, open a second one and run `cd ~/Documents/hivecode` first.
 
 **Hive Workers on Node:** workers on other computers connect to the bot's Hive Worker API on port `8787`. If you'll use the `workers` builder, run the bot on a server with a public address, or expose the port with a tunnel (for example `cloudflared tunnel --url http://localhost:8787`). Put that public address in `PUBLIC_URL`.
 
-### 5. Register the slash commands
+### 5. Check the slash commands
 
-💻 In the `hivecode` folder:
+HiveCode registers its commands (`/idea`, `/hive` and the **Add as option** right-click action) by itself, so usually there's nothing to do:
 
-```bash
-npm run register
-```
+- **Cloudflare:** it happened when Discord verified your endpoint in A6.
+- **Node:** it happens every time `npm start` runs; its terminal prints `🐝 Registered 3 commands.`
 
-It asks for your Application ID and bot token (Node users who filled in `.env` skip the questions). When it prints `🐝 Registered 3 commands.`, you're done. 💬 Typing `/` in your server should now show `/idea` and `/hive`. If they don't appear, restart Discord (Ctrl+R on desktop).
+💬 In your server, type `/`. You should see `/idea` and `/hive`. If you don't, restart Discord (Ctrl+R on desktop) and look again.
+
+Still missing? 🌐 Open your bot's address with `/register` added to the end, e.g. `https://hivecode.<your-subdomain>.workers.dev/register` (Node: `http://localhost:8787/register`). The page says `Registered 3 commands`, or tells you what's wrong (usually a bot token that was reset: update `DISCORD_TOKEN` as in [Changing settings later](#changing-settings-later)).
 
 ### 6. Turn it on in your server
 

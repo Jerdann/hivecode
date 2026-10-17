@@ -1,4 +1,5 @@
 // Cloudflare Workers entry: Discord sends interactions over HTTP, a cron trigger runs tick().
+import { registerCommands } from './commands.ts';
 import { api, interaction, tick, type Db, type Env } from './hive.ts';
 
 interface D1Database {
@@ -13,6 +14,7 @@ const d1 = (db: D1Database): Db => ({
   run: async (sql, ...p) => (await db.prepare(sql).bind(...p).run()).meta.changes,
 });
 
+const text = (body: string, status = 200) => new Response(body, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
 const bytes = (hex: string) => Uint8Array.from(hex.match(/../g) ?? [], (h) => parseInt(h, 16));
 
 // Discord signs every request; reject anything that isn't from them.
@@ -31,12 +33,21 @@ async function verify(req: Request, body: string, publicKey: string | undefined)
 export default {
   async fetch(req: Request, env: CfEnv, ctx: Ctx): Promise<Response> {
     const db = d1(env.DB);
-    if (new URL(req.url).pathname.startsWith('/api/')) return api(req, env, db);
-    if (req.method !== 'POST') return new Response('🐝 HiveCode is running');
+    const { pathname } = new URL(req.url);
+    if (pathname.startsWith('/api/')) return api(req, env, db);
+    if (pathname === '/register') {
+      const r = await registerCommands(env.DISCORD_APP_ID, env.DISCORD_TOKEN);
+      return text(r.message, r.ok ? 200 : 500);
+    }
+    if (req.method !== 'POST') return text('🐝 HiveCode is running');
     const body = await req.text();
     if (!(await verify(req, body, env.DISCORD_PUBLIC_KEY))) return new Response('Bad signature', { status: 401 });
     const ix = JSON.parse(body);
-    if (ix.type === 1) return Response.json({ type: 1 }); // Discord's endpoint check
+    if (ix.type === 1) {
+      // Discord's endpoint check, sent when you save the Interactions Endpoint URL: a good moment to register commands.
+      ctx.waitUntil(registerCommands(env.DISCORD_APP_ID, env.DISCORD_TOKEN).then((r) => console.log(r.message)));
+      return Response.json({ type: 1 });
+    }
     const reply = await interaction(ix, env, db);
     if (reply.after) ctx.waitUntil(reply.after().catch(console.error));
     return Response.json(reply.body);

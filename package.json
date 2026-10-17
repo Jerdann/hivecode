@@ -10,7 +10,6 @@
   },
   "scripts": {
     "start": "node --env-file-if-exists=.env src/node.ts",
-    "register": "node --env-file-if-exists=.env src/commands.ts",
     "deploy": "wrangler deploy",
     "test": "node --test test/*.test.ts",
     "check": "tsc"

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { Client, GatewayDispatchEvents, GatewayIntentBits } from 'discord.js';
+import { registerCommands } from './commands.ts';
 import { api, interaction, tick, type Db, type Env } from './hive.ts';
 
 const env = process.env as unknown as Env;
@@ -32,7 +33,10 @@ client.ws.on(GatewayDispatchEvents.InteractionCreate, async (ix) => {
     console.error(e);
   }
 });
-client.once('clientReady', () => console.log(`🐝 HiveCode online as ${client.user?.tag}`));
+client.once('clientReady', async () => {
+  console.log(`🐝 HiveCode online as ${client.user?.tag}`);
+  console.log((await registerCommands(env.DISCORD_APP_ID, env.DISCORD_TOKEN)).message);
+});
 await client.login(env.DISCORD_TOKEN);
 
 setInterval(() => tick(env, db).catch(console.error), 60_000);
@@ -45,8 +49,13 @@ createServer(async (req, res) => {
     const request = new Request(`http://localhost${req.url}`, {
       method: req.method, headers: req.headers as Record<string, string>, body: chunks.length ? Buffer.concat(chunks) : undefined,
     });
-    const response = req.url?.startsWith('/api/') ? await api(request, env, db) : new Response('🐝 HiveCode is running');
-    res.writeHead(response.status, { 'Content-Type': response.headers.get('content-type') ?? 'text/plain' });
+    let response: Response;
+    if (req.url?.startsWith('/api/')) response = await api(request, env, db);
+    else if (req.url === '/register') {
+      const r = await registerCommands(env.DISCORD_APP_ID, env.DISCORD_TOKEN);
+      response = new Response(r.message, { status: r.ok ? 200 : 500 });
+    } else response = new Response('🐝 HiveCode is running');
+    res.writeHead(response.status, { 'Content-Type': response.headers.get('content-type') ?? 'text/plain; charset=utf-8' });
     res.end(await response.text());
   } catch (e) {
     console.error(e);

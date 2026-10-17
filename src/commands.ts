@@ -1,9 +1,8 @@
-// Registers HiveCode's slash commands with Discord. Run once after setup: npm run register
-import { createInterface } from 'node:readline/promises';
-
+// HiveCode's slash commands. The bot registers them itself: on Cloudflare when Discord verifies the
+// endpoint (or when you open /register), on Node every time it starts.
 const choices = (pairs: Record<string, string>) => Object.entries(pairs).map(([value, name]) => ({ name, value }));
 
-const commands = [
+export const commands = [
   { name: 'idea', description: 'Suggest something for the hive to build', contexts: [0] },
   {
     name: 'hive', description: 'HiveCode', contexts: [0],
@@ -35,17 +34,15 @@ const commands = [
   { type: 3, name: 'Add as option', contexts: [0] },
 ];
 
-// Read from .env when there is one, otherwise just ask.
-let { DISCORD_APP_ID, DISCORD_TOKEN } = process.env;
-if (!DISCORD_APP_ID || !DISCORD_TOKEN) {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  DISCORD_APP_ID ||= (await rl.question('Discord Application ID (Developer Portal → General Information): ')).trim();
-  DISCORD_TOKEN ||= (await rl.question('Discord bot token (Developer Portal → Bot): ')).trim();
-  rl.close();
+// Discord replaces the whole command list on each PUT, so this is safe to run any time.
+export async function registerCommands(appId: string | undefined, token: string | undefined): Promise<{ ok: boolean; message: string }> {
+  if (!appId || !token) return { ok: false, message: '⚠️ DISCORD_APP_ID and DISCORD_TOKEN must both be set first.' };
+  const res = await fetch(`https://discord.com/api/v10/applications/${appId.trim()}/commands`, {
+    method: 'PUT',
+    headers: { Authorization: `Bot ${token.trim()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(commands),
+  });
+  if (res.ok) return { ok: true, message: `🐝 Registered ${commands.length} commands. Type / in your server to see them.` };
+  if (res.status === 401) return { ok: false, message: '⚠️ Discord rejected the bot token (401). It is wrong or was reset. Get a fresh one (Developer Portal → Bot → Reset Token) and update DISCORD_TOKEN.' };
+  return { ok: false, message: `⚠️ Discord said ${res.status}: ${(await res.text()).slice(0, 300)}` };
 }
-const res = await fetch(`https://discord.com/api/v10/applications/${DISCORD_APP_ID}/commands`, {
-  method: 'PUT',
-  headers: { Authorization: `Bot ${DISCORD_TOKEN}`, 'Content-Type': 'application/json' },
-  body: JSON.stringify(commands),
-});
-console.log(res.ok ? `🐝 Registered ${commands.length} commands.` : `Failed: ${res.status} ${await res.text()}`);
