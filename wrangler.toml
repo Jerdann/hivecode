@@ -1,0 +1,20 @@
+# Cloudflare Workers config. See README -> "Option A: Cloudflare".
+name = "hivecode"
+main = "src/cloudflare.ts"
+compatibility_date = "2026-06-01"
+
+# Runs the vote timers and GitHub sync every minute.
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hivecode"
+database_id = "paste-the-id-from-wrangler-d1-create"
+
+[vars]
+DISCORD_APP_ID = ""
+GITHUB_REPO = "owner/repo"
+PUBLIC_URL = ""
+# Secrets (set with `npx wrangler secret put NAME`, never put them here):
+# DISCORD_PUBLIC_KEY, DISCORD_TOKEN, GITHUB_TOKEN

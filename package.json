@@ -1,0 +1,25 @@
+{
+  "name": "hivecode",
+  "version": "0.1.0",
+  "description": "Hive coding: your Discord community proposes and votes on features, AI agents build them.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/node.ts",
+    "register": "node --env-file-if-exists=.env src/commands.ts",
+    "deploy": "wrangler deploy",
+    "test": "node --test test/*.test.ts",
+    "check": "tsc"
+  },
+  "dependencies": {
+    "discord.js": "^14.27.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.151.1"
+  }
+}
