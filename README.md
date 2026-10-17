@@ -41,58 +41,100 @@ GitHub → Settings → Developer settings → **Fine-grained tokens** → Gener
 - **Repository access:** only the project repo.
 - **Permissions:** Issues, Pull requests and Contents, all set to **Read and write**.
 
-### 3. Run the bot (pick one)
+### 3. Download HiveCode
+
+Open a terminal (Windows: **PowerShell** or **Terminal**; Mac: **Terminal**) and run:
+
+```bash
+cd ~/Documents
+git clone https://github.com/Jerdann/hivecode
+cd hivecode
+npm install
+```
+
+That puts HiveCode in your Documents folder:
+
+- **Windows:** `C:\Users\<your name>\Documents\hivecode`
+- **Mac:** `/Users/<your name>/Documents/hivecode`
+
+**Every command from here on runs inside this `hivecode` folder**, and that's where the config files (`wrangler.toml`, `.env`) live.
+
+> **Can't find the folder?** `git clone` creates it inside whatever folder your terminal was in, so if you skipped `cd ~/Documents` it's probably `C:\Users\<your name>\hivecode`. In the terminal, `pwd` prints where you are, and `explorer .` (Windows) or `open .` (Mac) opens that folder.
+>
+> If npm warns that esbuild/workerd install scripts were skipped, run `npm install-scripts approve esbuild workerd`, then `npm install` again.
+
+### 4. Run the bot (pick one)
 
 #### Option A: Cloudflare Workers (free, always on, nothing to babysit)
 
+**A1. Log in and create the database**
+
 ```bash
-git clone https://github.com/Jerdann/hivecode && cd hivecode
-npm install
 npx wrangler login
 npx wrangler d1 create hivecode
 ```
 
-Paste the printed `database_id` into `wrangler.toml`, and set `DISCORD_APP_ID` and `GITHUB_REPO` there. Then:
+The output includes a line like `"database_id": "1a2b3c4d-5e6f-..."`. Copy the ID inside the quotes. If wrangler offers to add the database to your config file for you, choose **No**; the file already has a spot for it.
+
+**A2. Paste the ID into `wrangler.toml`**
+
+`wrangler.toml` is in your `hivecode` folder (for example `C:\Users\<your name>\Documents\hivecode\wrangler.toml`). Open it in any text editor (`notepad wrangler.toml` on Windows, `open -e wrangler.toml` on Mac), find this line:
+
+```toml
+database_id = "PASTE-YOUR-DATABASE-ID-HERE"
+```
+
+Replace the placeholder with your ID, keep the quotes, and save. That's the only file you edit.
+
+**A3. Create the tables and deploy**
 
 ```bash
 npx wrangler d1 execute hivecode --remote --file=schema.sql
-npx wrangler secret put DISCORD_PUBLIC_KEY
-npx wrangler secret put DISCORD_TOKEN
-npx wrangler secret put GITHUB_TOKEN
 npx wrangler deploy
 ```
 
-Copy the `https://hivecode.<you>.workers.dev` URL it prints:
+`deploy` prints your bot's address, like `https://hivecode.<you>.workers.dev`. Copy it.
 
-- Developer Portal → **General Information → Interactions Endpoint URL** → paste it and save. Discord sends a test request, and HiveCode answers it.
-- Put the same URL in `PUBLIC_URL` in `wrangler.toml` and `npx wrangler deploy` again. Hive Workers use it.
+**A4. Add your settings.** Run each line. Each one asks you to paste one value:
 
-> If npm warns that esbuild/workerd install scripts were skipped, run `npm install-scripts approve esbuild workerd`, then `npm install` again.
+```bash
+npx wrangler secret put DISCORD_APP_ID       # Application ID (step 1)
+npx wrangler secret put DISCORD_PUBLIC_KEY   # Public Key (step 1)
+npx wrangler secret put DISCORD_TOKEN        # Bot token (step 1)
+npx wrangler secret put GITHUB_TOKEN         # GitHub token (step 2)
+npx wrangler secret put GITHUB_REPO          # Your project repo as owner/name, e.g. Jerdann/my-app
+npx wrangler secret put PUBLIC_URL           # The workers.dev address from A3
+```
+
+**A5. Connect Discord.** Developer Portal → **General Information → Interactions Endpoint URL** → paste the workers.dev address → **Save Changes**. Discord sends a test request; if it saves, the bot is live.
 
 #### Option B: Node (your PC, a VPS, Railway…)
 
-Needs Node 24+.
+Needs Node 24+. In your `hivecode` folder:
 
 ```bash
-git clone https://github.com/Jerdann/hivecode && cd hivecode
-npm install
-cp .env.example .env     # then fill it in
+cp .env.example .env
+notepad .env
 npm start
 ```
 
-It connects to Discord over the gateway, so the bot itself needs no public URL. Data lives in `hive.db`.
+Fill in each line of `.env` before `npm start` (on Mac, use `open -e .env` instead of `notepad`). The comments in the file say where each value comes from.
+
+The bot connects to Discord over the gateway, so it needs no public URL. Data lives in `hive.db`.
 
 The **Hive Worker API** listens on `PORT` (default 8787). Workers on other machines need to reach it, so if you use the `workers` builder, either run on a server with a public address or expose the port with a tunnel (for example `cloudflared tunnel --url http://localhost:8787`). Put that address in `PUBLIC_URL`.
 
-### 4. Register the slash commands
+### 5. Register the slash commands
 
-With `DISCORD_APP_ID` and `DISCORD_TOKEN` in `.env` (Cloudflare users: create a `.env` with just those two):
+In your `hivecode` folder:
 
 ```bash
 npm run register
 ```
 
-### 5. Set it up in Discord
+It asks for your Application ID and bot token (Node users who filled in `.env` skip the questions).
+
+### 6. Set it up in Discord
 
 Run `/hive setup` in your server. It creates the `#hive-ideas` forum (only `/idea` can start posts; everyone can reply), the **Hive Worker** role, and applies default rules. Run it again with any option to change a setting:
 

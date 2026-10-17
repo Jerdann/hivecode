@@ -1,4 +1,6 @@
 // Registers HiveCode's slash commands with Discord. Run once after setup: npm run register
+import { createInterface } from 'node:readline/promises';
+
 const choices = (pairs: Record<string, string>) => Object.entries(pairs).map(([value, name]) => ({ name, value }));
 
 const commands = [
@@ -33,8 +35,14 @@ const commands = [
   { type: 3, name: 'Add as option', contexts: [0] },
 ];
 
-const { DISCORD_APP_ID, DISCORD_TOKEN } = process.env;
-if (!DISCORD_APP_ID || !DISCORD_TOKEN) throw new Error('Set DISCORD_APP_ID and DISCORD_TOKEN (in .env) first.');
+// Read from .env when there is one, otherwise just ask.
+let { DISCORD_APP_ID, DISCORD_TOKEN } = process.env;
+if (!DISCORD_APP_ID || !DISCORD_TOKEN) {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  DISCORD_APP_ID ||= (await rl.question('Discord Application ID (Developer Portal → General Information): ')).trim();
+  DISCORD_TOKEN ||= (await rl.question('Discord bot token (Developer Portal → Bot): ')).trim();
+  rl.close();
+}
 const res = await fetch(`https://discord.com/api/v10/applications/${DISCORD_APP_ID}/commands`, {
   method: 'PUT',
   headers: { Authorization: `Bot ${DISCORD_TOKEN}`, 'Content-Type': 'application/json' },

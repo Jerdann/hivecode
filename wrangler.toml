@@ -1,4 +1,4 @@
-# Cloudflare Workers config. See README -> "Option A: Cloudflare".
+# Cloudflare Workers config. See README -> "Option A: Cloudflare Workers".
 name = "hivecode"
 main = "src/cloudflare.ts"
 compatibility_date = "2026-06-01"
@@ -7,14 +7,12 @@ compatibility_date = "2026-06-01"
 [triggers]
 crons = ["* * * * *"]
 
+# THE ONLY LINE YOU EDIT: replace the placeholder with the database_id that
+# `npx wrangler d1 create hivecode` printed. Keep the quotes.
 [[d1_databases]]
 binding = "DB"
 database_name = "hivecode"
-database_id = "paste-the-id-from-wrangler-d1-create"
+database_id = "PASTE-YOUR-DATABASE-ID-HERE"
 
-[vars]
-DISCORD_APP_ID = ""
-GITHUB_REPO = "owner/repo"
-PUBLIC_URL = ""
-# Secrets (set with `npx wrangler secret put NAME`, never put them here):
-# DISCORD_PUBLIC_KEY, DISCORD_TOKEN, GITHUB_TOKEN
+# Everything else (Discord keys, GitHub token, repo, URL) is set with
+# `npx wrangler secret put NAME`, so nothing private ever lives in this file.
