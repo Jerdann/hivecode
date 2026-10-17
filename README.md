@@ -17,7 +17,7 @@ Self-hosted, free, works with Claude Code, Codex, or whatever agent you use.</p>
 3. **The card freezes and the hive votes.** Buttons for each option, plus Reject. You choose the bar: a minimum number of votes, a yes percentage, or both.
 4. **Approved ideas become GitHub issues** containing exactly the text people voted on. The discussion itself never goes to the AI.
 5. **Something builds it**, whichever you pick: you, an AI agent in a GitHub Action, or **Hive Workers** (community members running their own AI on their own machines).
-6. **The PR gets merged** by you, by a community ship vote, or automatically (chaos mode). The post's tag tracks every step: Discussing → Voting → Approved → Building → Review → Shipped.
+6. **The PR gets merged** by you, by a community ship vote, or automatically (risky, opt-in). The post's tag tracks every step: Discussing → Voting → Approved → Building → Review → Shipped.
 
 ## Install
 
@@ -208,20 +208,28 @@ Still missing? 🌐 Open your bot's address with `/register` added to the end, e
 ### 6. Turn it on in your server
 
 1. 💬 Open your server, click into any text channel, type `/hive setup` and press Enter. (Ignore the options that pop up as you type; they're shortcuts for later.)
-2. 💬 A **setup guide** appears that only you can see. Each step explains one choice and has dropdowns with sensible defaults already picked. Change anything you like (it saves instantly), click **Next ▶** to move on and **✅ Finish** at the end. Steps that don't apply are skipped; for example, there are no voting steps if maintainers decide everything.
-3. 💬 HiveCode also creates:
-   - **#hive-ideas**, a forum channel in your channel list. Members post ideas with `/idea`; only HiveCode can start posts there, and everyone can reply.
-   - **Four roles**, explained in [Roles](#roles) below. You get **Hive Mind** automatically.
-4. 💬 Try it: type `/idea` in any channel, fill in the form, and your idea appears as a post in **#hive-ideas**.
+2. 💬 **Already have a forum** (say, for suggestions)? HiveCode first asks where ideas should go: pick your forum, or click **➕ Create #hive-ideas**. An existing forum keeps its tags, permissions and posts; HiveCode adds its status tags and only tracks posts made with `/idea`.
+3. 💬 A **setup guide** appears that only you can see. Each step explains one choice and has dropdowns with sensible defaults already picked. Change anything you like (it saves instantly), click **Next ▶** to move on and **✅ Finish** at the end. Steps that don't apply are skipped; for example, there are no voting steps if maintainers decide everything.
+4. 💬 HiveCode also creates a **🐝 HiveCode** category in your channel list, and **four roles**, explained in [Roles](#roles) below. You get **Hive Mind** automatically.
 
-To change anything later, run `/hive setup` again: the guide opens with your current choices selected.
+| Channel | Who sees it | What it's for |
+|---|---|---|
+| **#hive-guide** | Everyone (read-only) | How ideas work in your server, every command and every role. The bot keeps it in sync with your settings. Only maintainers can post here |
+| **#hive-ideas** | Everyone | The ideas forum (unless you picked your own). Ideas start with `/idea`; everyone can reply |
+| **#hive-stats** | Everyone (read-only) | Fun numbers, refreshed every 15 minutes: ideas by stage, approval rate, votes cast, busiest bees, top pollinators, loudest buzz, hardest workers, hottest idea and the idea waiting longest |
+| **#hive-workers** | Hive Workers and maintainers only | A step-by-step guide to setting up `hive-worker`, the two ways to get work, the risks, and how to revoke access. Workers can chat and coordinate here |
+| **#hive-changelog** | Everyone (read-only) | Optional. A post for every shipped idea. Create it from the last step of the setup guide, or pick any channel |
+
+5. 💬 Try it: type `/idea` in any channel, fill in the form, and your idea appears as a post in the ideas forum.
+
+To change anything later, run `/hive setup` again: the guide opens with your current choices selected, and **#hive-guide** updates as you go. Deleted one of HiveCode's channels by accident? Run `/hive setup` and it gets recreated.
 
 #### Roles
 
 | Role | Who it's for | What they can do |
 |---|---|---|
-| **Hive Mind** (gold) | You and other owners | Everything: run `/hive setup`, Approve, Veto, Open voting now |
-| **Hive Manager** (orange) | Trusted moderators | Approve, Veto and Open voting now, plus moderate **#hive-ideas** (lock, close, pin and delete posts). They can't change setup |
+| **Hive Mind** (gold) | You and other owners | Everything: run `/hive setup`, Approve, Veto, Open voting now, Assign |
+| **Hive Manager** (orange) | Trusted moderators | Approve, Veto, Open voting now and Assign, plus moderate the ideas forum (lock, close, pin and delete posts). They can't change setup |
 | **Hive Worker** (blue) | Members who code for the project with their own AI | Claim approved ideas and build them with `hive-worker` (see [Builders](#builders)). They need a GitHub account, but no access to your repo |
 | **Pollinator** (pink) | Anyone whose idea shipped | Given automatically the first time one of their ideas ships. Just bragging rights |
 
@@ -239,13 +247,13 @@ Everything in the guide can also be set directly as a `/hive setup` option, e.g.
 
 | Option | What it does | Default |
 |---|---|---|
-| `approval` | `vote` community decides · `vote+owner` community, then a maintainer confirms · `owner` maintainer picks · `auto` everything is approved instantly (chaos) | `vote` |
+| `approval` | `vote` community decides · `vote+owner` community, then a maintainer confirms · `owner` maintainer picks · `auto` everything is approved instantly (risky) | `vote` |
 | `min_votes` | Votes needed. When set, an idea passes **the moment** it has enough votes at the required %. `0` = no minimum, decided when voting closes | `5` |
 | `approve_pct` | % of votes that must be yes. `0` = simple majority | `60` |
 | `discuss_hours` | Discussion time before voting opens. `0` = vote right away | `24` |
 | `vote_hours` | How long voting (and ship votes) stay open | `48` |
 | `builder` | `manual` you build it · `action` AI agent via GitHub Action · `workers` Hive Workers claim it (see [Builders](#builders)) | `manual` |
-| `merge` | `owner` you merge · `vote` community ship vote · `auto` merge as soon as checks pass (chaos) | `owner` |
+| `merge` | `owner` you merge · `vote` community ship vote · `auto` merge as soon as checks pass (risky) | `owner` |
 | `options_by` | Who can turn replies into options: `author` (idea author + maintainers) or `anyone` | `author` |
 | `voter_role` | Only this role can vote. Pick `@everyone` to open it back up | everyone |
 | `changelog` | Channel that announces shipped ideas | none |
@@ -262,7 +270,7 @@ Everything in the guide can also be set directly as a `/hive setup` option, e.g.
 
 ## Builders
 
-Choose one with 💬 `/hive setup builder:`.
+Choose one in the setup guide (the "Who builds approved ideas" step), or with 💬 `/hive setup builder:`.
 
 ### `manual`: you build it
 
@@ -279,7 +287,7 @@ All of this happens 🌐 on GitHub, in your **project repo** (your app's repo, n
    - `OPENAI_API_KEY`: for Codex, from 🌐 https://platform.openai.com/api-keys.
 3. **Using Codex?** On the same page, open the **Variables** tab → **New repository variable**, name `HIVE_AGENT`, value `codex`. Claude is the default, so skip this for Claude.
 4. **Let Actions open pull requests.** Repo **Settings** → left sidebar **Actions → General** → scroll down to **Workflow permissions** → tick **Allow GitHub Actions to create and approve pull requests** → **Save**.
-5. 💬 Run `/hive setup builder:AI agent via GitHub Action`.
+5. 💬 In the setup guide, pick **AI agent (GitHub Action)** as the builder (or run `/hive setup builder:AI agent (GitHub Action)`).
 
 When an idea is approved, HiveCode labels its issue `hive:build`. That starts the workflow (🌐 watch it in your repo's **Actions** tab): your agent edits files with file-editing tools only, any change under `.github/` is thrown away, and a PR that closes the issue gets opened.
 
@@ -291,7 +299,8 @@ When an idea is approved, HiveCode labels its issue `hive:build`. That starts th
 
 1. Make sure workers can reach your bot. On Cloudflare that works out of the box once `PUBLIC_URL` is set (step A5). On Node, see [Hive Workers on Node](#option-b-node).
 2. 💬 Give trusted members the **Hive Worker** role: Server Settings → **Members** → find the person → click **+** next to their roles → **Hive Worker**. You can also right-click their name → **Roles** → **Hive Worker**.
-3. 💬 Run `/hive setup builder:Hive Workers claim it`. Each newly approved idea pings **@Hive Worker** in its post.
+3. 💬 In the setup guide, pick **Hive Workers** as the builder (or run `/hive setup builder:Hive Workers`). Each newly approved idea pings **@Hive Worker** in its post.
+4. 💬 Want a specific person on it? Click **👷 Assign to a worker** on the approved idea and pick them. They get pinged, and `hive-worker work` picks up their assignment first. Assignments go back to the queue after 6 hours if nobody starts.
 
 **Each Hive Worker, on their own computer:**
 
@@ -328,7 +337,7 @@ Community-written text ends up in an AI agent's prompt, so HiveCode limits what 
 - **Workflow changes always need a human.** HiveCode never auto-merges a PR that touches `.github/`.
 - **Hive Workers' machines run community prompts.** Keep the default file-only agent command, or run the worker in a container if you loosen it.
 - **Tokens stay with their owners.** Your GitHub token lives in your deployment, AI keys live in your repo secrets or on each worker's machine, and worker tokens are stored hashed.
-- **Chaos mode is opt-in.** `approval: auto` and `merge: auto` are meant for projects that can afford to get weird. Use a repo with no secrets and keep tests required.
+- **Risky modes are opt-in.** **Approve everything** and **Auto-merge** are meant for projects that can afford to get weird. Use a repo with no secrets and keep tests required.
 
 ## Development
 

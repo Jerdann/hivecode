@@ -22,7 +22,7 @@ The agent command gets the task on stdin. Default: ${DEFAULT_AGENT}
 Codex example: "codex exec --sandbox workspace-write -"`;
 
 interface Config { url: string; token: string; agent: string }
-interface Task { issue: number; title: string; spec: string; repo: string; branch: string }
+interface Task { issue: number; title: string; spec: string; repo: string; branch: string; assigned?: boolean }
 
 // execFile with an argument list, never a shell: task titles are community-written.
 const run = (bin: string, args: string[], cwd?: string) =>
@@ -97,10 +97,11 @@ function build(c: Config, task: Task): number | null {
 
 async function work(c: Config, issue: number | undefined, yes: boolean) {
   const tasks = await hive<Task[]>(c, 'GET', '/api/tasks');
-  const pick = issue ? tasks.find((t) => t.issue === issue) : tasks[0];
+  // Tasks a maintainer assigned to you come first.
+  const pick = issue ? tasks.find((t) => t.issue === issue) : tasks.find((t) => t.assigned) ?? tasks[0];
   if (!pick) return console.log(issue ? `🐝 #${issue} isn't open for claiming.` : '🐝 No open tasks right now.');
-  console.log(`\n🐝 #${pick.issue}: ${pick.title}\n\n${pick.spec}\n`);
-  if (!yes && !(await confirm('Claim and build this?'))) return;
+  console.log(`\n🐝 #${pick.issue}: ${pick.title}${pick.assigned ? ' (assigned to you)' : ''}\n\n${pick.spec}\n`);
+  if (!yes && !(await confirm(pick.assigned ? 'Build this now?' : 'Claim and build this?'))) return;
 
   const task = await hive<Task>(c, 'POST', `/api/tasks/${pick.issue}/claim`);
   try {
@@ -125,7 +126,7 @@ try {
     console.log(`🐝 Logged in. Config saved to ${CONFIG}`);
   } else if (cmd === 'list') {
     const tasks = await hive<Task[]>(config(), 'GET', '/api/tasks');
-    console.log(tasks.length ? tasks.map((t) => `#${t.issue}  ${t.title}`).join('\n') : '🐝 No open tasks right now.');
+    console.log(tasks.length ? tasks.map((t) => `#${t.issue}  ${t.title}${t.assigned ? '  (assigned to you)' : ''}`).join('\n') : '🐝 No open tasks right now.');
   } else if (cmd === 'work') {
     await work(config(), args[0] ? Number(args[0]) : undefined, rest.includes('--yes'));
   } else {

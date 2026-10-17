@@ -5,6 +5,10 @@ CREATE TABLE IF NOT EXISTS guilds (
   manager_role_id TEXT,                           -- Hive Manager: approve, veto, moderate the forum
   mind_role_id   TEXT,                            -- Hive Mind: owners (setup + decisions)
   pollinator_role_id TEXT,                        -- given to authors whose idea shipped
+  category_id    TEXT,                            -- the 🐝 HiveCode category
+  guide_channel_id TEXT, guide_message_id TEXT,   -- #hive-guide and its live post
+  stats_channel_id TEXT, stats_message_id TEXT,   -- #hive-stats and its live post
+  workers_channel_id TEXT,                        -- #hive-workers (private)
   tags           TEXT NOT NULL,                   -- JSON: status -> forum tag id
   voter_role_id  TEXT,                            -- NULL = everyone can vote
   changelog_id   TEXT,
