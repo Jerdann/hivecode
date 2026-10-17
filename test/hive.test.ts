@@ -35,11 +35,11 @@ test('idea → vote → issue → worker claim → PR → auto-merge → shipped
   // Fake Discord + GitHub: just enough of each route.
   const calls: string[] = [];
   const sent: Record<string, any[]> = {}; // request bodies per route
-  let threads = 0;
+  let threads = 0, roles = 0;
   const replies: Record<string, unknown> = {
-    'POST /guilds/g/roles': { id: 'role' },
+    'GET /guilds/g/roles': [{ id: 'role1', position: 3 }, { id: 'role2', position: 2 }, { id: 'role3', position: 1 }],
     'POST /repos/o/r/issues': { number: 7 },
-    'GET /guilds/g/members/worker': { roles: ['role'] },
+    'GET /guilds/g/members/worker': { roles: ['role1'] },
     'GET /repos/o/r/pulls/9': { number: 9, merged: false, mergeable_state: 'clean', head: { ref: 'hive/issue-7' } },
     'GET /repos/o/r/pulls/9/files?per_page=100': [{ filename: 'src/dark.css' }],
     'GET /repos/o/r/issues?labels=hive%3Aapproved&state=all&sort=updated&per_page=100': [{ number: 7, state: 'open' }],
@@ -49,6 +49,7 @@ test('idea → vote → issue → worker claim → PR → auto-merge → shipped
     const key = `${init.method ?? 'GET'} ${String(url).replace(/^https:\/\/[^/]+(\/api\/v10)?/, '')}`;
     calls.push(key);
     if (init.body) (sent[key] ??= []).push(JSON.parse(String(init.body)));
+    if (key === 'POST /guilds/g/roles') return Response.json({ id: `role${++roles}` });
     if (key === 'POST /channels/forum/threads') return Response.json({ id: `thread${++threads}` });
     if (key === 'POST /guilds/g/channels') {
       const tags = JSON.parse(String(init.body)).available_tags.map((t: any, n: number) => ({ ...t, id: `tag${n}` }));
@@ -71,6 +72,12 @@ test('idea → vote → issue → worker claim → PR → auto-merge → shipped
     { name: 'builder', value: 'workers' }, { name: 'merge', value: 'auto' },
   ] }] } });
   assert.equal(sqlite.prepare('SELECT builder FROM guilds').get()?.builder, 'workers');
+  // Created Worker (role1), Manager (role2), Mind (role3), each landing at the bottom; re-sorted Mind > Manager > Worker.
+  assert.deepEqual({ ...sqlite.prepare('SELECT worker_role_id, manager_role_id, mind_role_id FROM guilds').get() },
+    { worker_role_id: 'role1', manager_role_id: 'role2', mind_role_id: 'role3' });
+  assert.deepEqual(sent['PATCH /guilds/g/roles'][0], [{ id: 'role3', position: 3 }, { id: 'role2', position: 2 }, { id: 'role1', position: 1 }]);
+  assert.ok(calls.includes('PUT /guilds/g/members/owner/roles/role3'), 'whoever runs setup gets Hive Mind');
+  assert.deepEqual(sent['PUT /channels/forum/permissions/role2'][0], { type: 0, allow: String(1n << 34n) }, 'managers can moderate the forum');
 
   assert.equal((await send({ type: 2, member: member('alice'), data: { name: 'idea' } })).type, 9, '/idea opens a modal');
   await send({ type: 5, member: member('alice'), data: { custom_id: 'idea', components: [
@@ -88,7 +95,7 @@ test('idea → vote → issue → worker claim → PR → auto-merge → shipped
   assert.ok(calls.includes('POST /repos/o/r/issues'));
 
   // A Hive Worker gets a token and works the task through the API.
-  const { data } = await send({ type: 2, member: member('worker', '0', ['role']), data: { name: 'hive', options: [{ name: 'worker' }] } });
+  const { data } = await send({ type: 2, member: member('worker', '0', ['role1']), data: { name: 'hive', options: [{ name: 'worker' }] } });
   const token = data.content.match(/hive_[0-9a-f]+/)[0];
   const call = (method: string, path: string, body?: unknown) =>
     api(new Request(`https://hive.test${path}`, { method, headers: { Authorization: `Bearer ${token}` }, body: body === undefined ? undefined : JSON.stringify(body) }), env, db);
@@ -122,4 +129,26 @@ test('idea → vote → issue → worker claim → PR → auto-merge → shipped
   const note = sent['POST /channels/thread2/messages'].find((m) => m.content.includes('Ship the fun one'));
   assert.equal(note?.content, '✅ Approved option **B** by <@owner>: Ship the fun one');
   assert.deepEqual(note.allowed_mentions, { users: ['owner'] }, 'typed reasons can only ping the maintainer');
+
+  // The Hive Mind role alone (no Manage Server) is enough to act as a maintainer.
+  assert.equal((await send({ type: 3, channel_id: 'thread2', member: member('mindy', '0', ['role3']), data: { custom_id: 'veto' } })).type, 9,
+    'Hive Mind can veto (an approved idea is still vetoable until someone builds it)');
+  const mindSetup = await send({ type: 3, member: member('mindy', '0', ['role3']), data: { custom_id: 'setup:go:0' } });
+  assert.equal(mindSetup.type, 7, 'Hive Mind can open the setup wizard');
+  const manny = member('manny', '0', ['role2']);
+  assert.equal((await send({ type: 3, channel_id: 'thread2', member: manny, data: { custom_id: 'veto' } })).type, 9, 'Hive Manager can veto');
+  assert.equal((await send({ type: 3, member: manny, data: { custom_id: 'setup:go:0' } })).data.flags, 64, 'but cannot change setup');
+
+  // Guided setup: no options opens the wizard; picks save right away and hide steps that no longer apply.
+  await send({ type: 2, member: member('owner', '32', ['role3']), data: { name: 'hive', options: [{ name: 'setup' }] } });
+  const opened = sent['PATCH /webhooks/app/tok/messages/@original'].at(-1);
+  assert.equal(opened.embeds[0].title, '🐝 HiveCode setup · step 1 of 6');
+  const picked = await send({ type: 3, member: member('owner', '32'), data: { custom_id: 'setup:0:approval', values: ['owner'] } });
+  assert.equal(sqlite.prepare('SELECT approval FROM guilds').get()?.approval, 'owner');
+  assert.equal(picked.data.embeds[0].title, '🐝 HiveCode setup · step 1 of 4', 'voting steps hidden when maintainers decide');
+  await send({ type: 3, member: member('owner', '32'), data: { custom_id: 'setup:5:changelog_id', values: [] } });
+  assert.equal(sqlite.prepare('SELECT changelog_id FROM guilds').get()?.changelog_id, null, 'clearing a dropdown clears the setting');
+  const done = await send({ type: 3, member: member('owner', '32'), data: { custom_id: 'setup:done' } });
+  assert.match(done.data.content, /HiveCode is ready/);
+  assert.equal((await send({ type: 3, member: member('alice'), data: { custom_id: 'setup:go:1' } })).data.flags, 64, 'members cannot change setup');
 });

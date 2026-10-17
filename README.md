@@ -207,13 +207,34 @@ Still missing? 🌐 Open your bot's address with `/register` added to the end, e
 
 ### 6. Turn it on in your server
 
-1. 💬 Open your server, click into any text channel, type `/hive setup` and press Enter. Options pop up as you type; skip them to use the defaults.
-2. 💬 Only you see the reply. HiveCode creates:
+1. 💬 Open your server, click into any text channel, type `/hive setup` and press Enter. (Ignore the options that pop up as you type; they're shortcuts for later.)
+2. 💬 A **setup guide** appears that only you can see. Each step explains one choice and has dropdowns with sensible defaults already picked. Change anything you like (it saves instantly), click **Next ▶** to move on and **✅ Finish** at the end. Steps that don't apply are skipped; for example, there are no voting steps if maintainers decide everything.
+3. 💬 HiveCode also creates:
    - **#hive-ideas**, a forum channel in your channel list. Members post ideas with `/idea`; only HiveCode can start posts there, and everyone can reply.
-   - **Hive Worker**, a role. Find it under Server Settings → **Roles**.
-3. 💬 Try it: type `/idea` in any channel, fill in the form, and your idea appears as a post in **#hive-ideas**.
+   - **Three roles**, explained in [Roles](#roles) below. You get **Hive Mind** automatically.
+4. 💬 Try it: type `/idea` in any channel, fill in the form, and your idea appears as a post in **#hive-ideas**.
 
-To change a rule later, run `/hive setup` again and pick the option from the list that pops up. Options you don't pick stay as they were.
+To change anything later, run `/hive setup` again: the guide opens with your current choices selected.
+
+#### Roles
+
+| Role | Who it's for | What they can do |
+|---|---|---|
+| **Hive Mind** (gold) | You and other owners | Everything: run `/hive setup`, Approve, Veto, Open voting now |
+| **Hive Manager** (orange) | Trusted moderators | Approve, Veto and Open voting now, plus moderate **#hive-ideas** (lock, close, pin and delete posts). They can't change setup |
+| **Hive Worker** (blue) | Members who code for the project with their own AI | Claim approved ideas and build them with `hive-worker` (see [Builders](#builders)). They need a GitHub account, but no access to your repo |
+
+Hive Mind and Hive Manager are the **maintainers**. Anyone with **Manage Server** also counts as Hive Mind.
+
+💬 To give someone a role: Server Settings → **Members** → find the person → click **+** next to their roles → pick the role. (Or right-click their name → **Roles**.)
+
+The member list on the right shows each role as its own group, Hive Mind first. If your server already has other grouped roles above them, drag the Hive roles higher in Server Settings → **Roles**. They must stay below the **HiveCode** role, or the bot can't manage them.
+
+When an idea needs a maintainer's OK, HiveCode pings **@Hive Mind** and **@Hive Manager** in its post. **✅ Approve** and **⛔ Veto** work at any point before an idea is decided, and each asks for an optional reason that gets posted in the thread.
+
+#### Setup shortcuts
+
+Everything in the guide can also be set directly as a `/hive setup` option, e.g. `/hive setup approval:Maintainers decide`:
 
 | Option | What it does | Default |
 |---|---|---|
@@ -227,8 +248,6 @@ To change a rule later, run `/hive setup` again and pick the option from the lis
 | `options_by` | Who can turn replies into options: `author` (idea author + maintainers) or `anyone` | `author` |
 | `voter_role` | Only this role can vote. Pick `@everyone` to open it back up | everyone |
 | `changelog` | Channel that announces shipped ideas | none |
-
-**Maintainers** are members whose role has **Manage Server** (💬 Server Settings → **Roles** → pick a role → **Permissions**). Only they can use the **✅ Approve**, **⛔ Veto** and **Open voting now** buttons. Approve and Veto work at any point before an idea is decided, and each asks for an optional reason that gets posted in the thread.
 
 ### Changing settings later
 
